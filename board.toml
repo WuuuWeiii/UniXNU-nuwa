@@ -122,6 +122,7 @@ patches = ["Resources/MuPatches/Gic-Spurious.patch"]
 packages = [
   "{uefi}",
   "{uefi}/Platforms/Xiaomi",
+  "{uefi}/Platforms/Qualcomm",
   "{tree}/package",
   "{tree}/drivers/DarwinBoot",
   "{edk2}",
