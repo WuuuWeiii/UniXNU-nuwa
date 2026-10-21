@@ -152,7 +152,10 @@ loader = "firmware"
 title = "nuwa first boot: source 4K XNU to console"
 dram_size = "0x80000000"             # first-boot window as sheng; TODO 上机后用 SMEM RAM 表实测值替换
 skip_setup_tool = "scripts/seed-data-skip-setup.py"   # used by --skip-setup
-panic_screen = true                  # patch panic() screen output into the payload copy of the kernel
+# panic_screen 补丁 (patch-xnu-entry-probe.py) 依赖 sheng 内核的精确布局（BOOT_PROGRESS/NATIVE_ADRENO/owner-data
+# 全开时），nuwa bring-up 关掉了这些，布局不同，补丁会在 panic 屏 padding 检查处失败。先关掉，等真机验证
+# 内核能 boot 后再按实际布局重算地址开启。
+panic_screen = false
 # The original static/System trust caches, and the owner trust bundle built around them.
 # Same IPSW as sheng, so the same hashes are correct here.
 trust_cache_sha256 = [
