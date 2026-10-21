@@ -156,9 +156,16 @@ jobs:
               print(f'cached {len(entries):>3} entries -> {name}')
           PY
 
-          # Pass B: with the caches in place this gets past prepare-xnu-source, runs
-          # `make installhdrs` (which fills the fakeroot with kern/*.h) and then stops at the
-          # crypto gate — exactly the state the archive builders need.
+          # Pass B: with the caches in place this gets past prepare-xnu-source and runs
+          # `make installhdrs` (filling the fakeroot with kern/*.h).
+          #
+          # It still cannot link. build-corecrypto-14.py --namespace needs the XNU symbol
+          # names, which only the link writes (link.filelist), and the link needs that very
+          # archive. Break the cycle the way uke layers defconfigs: compile once with every
+          # archive-dependent switch off (nuwa-bootstrap_defconfig). The script then has no
+          # gate left to die on, reaches the link, writes link.filelist, and fails there —
+          # which the driver tolerates. Then the archives can be built, then the real config.
+          python3 ./unixnu defconfig nuwa-bootstrap_defconfig -D "$GITHUB_WORKSPACE/device"
           python3 ./unixnu build kernel -D "$GITHUB_WORKSPACE/device" -j "$JOBS" || true
           framework="$tree/.cache/fakeroot/System/Library/Frameworks/Kernel.framework/Versions/A"
           if ! ls "$framework"/*/kern/clock.h >/dev/null 2>&1; then
@@ -167,6 +174,9 @@ jobs:
             exit 1
           fi
           echo "kernel headers present: $(ls "$framework"/*/kern/clock.h | head -1)"
+          filelist="$tree/build/xnu/ios-obj/DEVELOPMENT_ARM64_BCM2837/link.filelist"
+          test -f "$filelist" || { echo "::error::the bootstrap pass did not write $filelist"; exit 1; }
+          echo "link.filelist: $(wc -l < "$filelist") objects"
 
           # The namespaced provider needs the plain one built first, as board.toml orders them.
           ( cd "$tree" && python3 scripts/build-corecrypto-14.py )
@@ -174,6 +184,9 @@ jobs:
           archive="$tree/build/corecrypto-2023/libcorecrypto_kernel_noasm-namespaced.a"
           test -f "$archive" || { echo "::error::crypto archive still missing: $archive"; exit 1; }
           echo "crypto archive ready: $(stat -f%z "$archive") bytes"
+
+          # back to the configuration the kernel is actually built with
+          python3 ./unixnu defconfig nuwa_defconfig -D "$GITHUB_WORKSPACE/device"
 
       - name: Build the kernel and prelink it
         working-directory: UniXNU

@@ -1,0 +1,53 @@
+# Bootstrap configuration: compile XNU once so the link step writes link.filelist.
+#
+# Why this file exists
+# --------------------
+# `build-corecrypto-14.py --namespace` needs the XNU symbol table, which only the
+# link step produces (`link.filelist`), but the link needs that namespaced
+# archive. `build-xnu-4k-baseline.sh` also gates on
+#   test -f build/corecrypto-2023/libcorecrypto_kernel_noasm-namespaced.a
+# simply dying (set -e, no message) when it is missing.
+#
+# So: build once with every archive-dependent switch off — the script then has
+# no gate to die on, reaches the link, writes link.filelist and fails because the
+# kernel obviously cannot link without its providers. The driver tolerates that
+# failure, then the archives can be built, then nuwa_defconfig builds for real.
+#
+# This is the same layering uke uses (bootstrap_defconfig -> uke_defconfig ->
+# uke-full_defconfig); keep the two files in sync whenever a new flag is added.
+
+# everything that is satisfied by an archive builder is off here
+CONFIG_XNU_SOURCE_CORECRYPTO14=n
+CONFIG_XNU_SOURCE_PTHREAD=n
+CONFIG_XNU_ARMCPU=n
+CONFIG_XNU_SOURCE_MOCKFS=n
+CONFIG_XNU_NATIVE_UFS=n
+CONFIG_XNU_NATIVE_AES=n
+CONFIG_XNU_NATIVE_VIRTIO_BLOCK=n
+CONFIG_XNU_NATIVE_RAM_BLOCK=n
+CONFIG_XNU_VERIFIED_ROOT_PROBE=n
+CONFIG_XNU_OWNER_ROOT_AUDIT=n
+CONFIG_XNU_OWNER_ROOT_TRUST=n
+CONFIG_XNU_NATIVE_CS_HASH_CACHE=n
+CONFIG_XNU_SHENG_PMGR=n
+CONFIG_XNU_OWNER_CACHE_MOUNT=n
+CONFIG_XNU_OWNER_CACHE_STARTUP=n
+CONFIG_XNU_OWNER_BOOT_MANIFEST=n
+CONFIG_XNU_OWNER_DATA_MOUNT=n
+CONFIG_XNU_OWNER_UNION_SYSTEMOS=n
+CONFIG_XNU_DT_PANIC_REGION=n
+CONFIG_XNU_ZONE_PGZ_ALIGNMENT_PROBE=n
+CONFIG_XNU_NATIVE_LEGACY_DISPLAY=n
+CONFIG_XNU_NATIVE_ADRENO=n
+
+# kept: these do not pull in any archive and give the boot progress markers
+CONFIG_XNU_ARM_DT_PLATFORM=y
+CONFIG_XNU_NATIVE_ARCH_TIMER=y
+CONFIG_XNU_NATIVE_PAN=y
+CONFIG_XNU_BOOT_PROGRESS=y
+
+# the source-provider mode is irrelevant while CORECRYPTO14 is off, but the
+# script validates the string, so keep a legal value
+CONFIG_XNU_CRYPTO_BOOTSTRAP="source"
+CONFIG_XNU_NATIVE_MOBILE_DISPLAY=n
+CONFIG_XNU_ARMVIRT_PLATFORM=n
