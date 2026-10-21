@@ -221,12 +221,11 @@ unique_chip_id = "required"          # the platform seed is not stored in any re
 
 # Image parameters come from the Mu-Silicium device config; [bootimg.image] overrides them.
 #
-# header_version 0 = sheng 的实测配置（uefi-sheng@sheng 的 Resources/Configs/sheng.toml 明确写 0）；
-# Mu-Silicium 的 nuwa.toml 写的是 1。第一次上机的现象是「fastboot boot 后自动弹回 fastboot」，
-# 即 ABL 没有接受这个镜像 —— v1 比 v0 多 recovery_dtbo 等字段，ABL 若按 v0 解析会错位。
-# 只改这一个变量，其余保持与 sheng 一致，便于对照。
+# 依据实测：官方 Mu-qrd8550.img（同 SM8550，header **v3**）在 nuwa 上被 ABL 接受、UEFI 能起来；
+# 而 v1（Mu 的 nuwa.toml 值）与 v0（sheng 的值）都被 ABL 拒绝，设备留在 fastboot 且黑屏。
+# 所以 nuwa 的 ABL 要求 v3 及以上。这里对齐那个已验证能跑的镜像。
 [bootimg.image]
-header_version = 0
+header_version = 3
 base = 0
 kernel_offset = 0x8000
 tags_offset = 0x1e00000
