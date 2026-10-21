@@ -189,6 +189,19 @@ jobs:
               p.write_text(json.dumps({'runtime_metadata_checkpoint_sha256': '3044c2beff552911605994c0dc7aa73182066cbb5aed0b396999ceeb5a96da2b'}) + '\n')
           PY
 
+      - name: Stage the kernelcache for the archive audits
+        # build-sheng-platform-power.py -> audit-amfi-pmgr-contract.py reads the decompressed
+        # kernelcache from .cache/firmware/kernelcache.macho/; the bootstrap prelink already left
+        # out/ipsw/<build>/kernelcache.decompressed, so hand it over under the name the audit wants.
+        working-directory: UniXNU
+        run: |
+          workspace="$UNIXNU_OUT/nuwa/tree"
+          source=$(find "$UNIXNU_OUT/ipsw" -name 'kernelcache.decompressed' -print -quit)
+          test -n "$source" || { echo "::error::kernelcache.decompressed not found under $UNIXNU_OUT/ipsw"; exit 1; }
+          echo "kernelcache: $source"
+          mkdir -p "$workspace/.cache/firmware/kernelcache.macho"
+          cp "$source" "$workspace/.cache/firmware/kernelcache.macho/kernelcache.release.ipad7.decompressed"
+
       - name: Build and prelink the full kernel
         working-directory: UniXNU
         env:
