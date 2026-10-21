@@ -40,3 +40,7 @@ CONFIG_XNU_VERIFIED_ROOT_ARCHIVE="{tree}/build/verified-root-os-xnu-bundle/libVe
 CONFIG_XNU_EXTRA_LD_ARCHIVES=""
 CONFIG_XNU_NATIVE_MOBILE_DISPLAY=n
 CONFIG_XNU_ARMVIRT_PLATFORM=n
+
+# Xcode 16's clang removed -Wunnecessary-virtual-specifier; with -Werror an unknown
+# -Wno-* is fatal, so override the script default instead of patching it.
+CONFIG_XNU_EXTRA_CFLAGS="-Wno-reserved-identifier -Wno-pre-c11-compat -Wno-missing-designated-field-initializers -Wno-suggest-override -Wno-suggest-destructor-override -Wno-ms-bitfield-padding -Wno-unknown-warning-option"
