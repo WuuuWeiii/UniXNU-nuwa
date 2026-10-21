@@ -1,0 +1,168 @@
+# Stage 1 of the nuwa port: build the UEFI firmware and the boot image, entirely in CI.
+#
+# What this produces (no kernel involved -- that step needs macOS and is a separate workflow):
+#   SILICIUM_UEFI.fd   the EDK II firmware volume for nuwaPkg
+#   boot.img           gzip(BootShim + firmware volume) + the nuwa device tree, for `fastboot boot`
+#
+# Runs on a stock ubuntu-latest runner: everything stage 1 needs (EDK II, clang/lld, dtc, mtools)
+# is available on Linux. See docs/CI-阶段1.md for the repository layout this expects.
+
+name: stage1-firmware
+
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: 'EDK II build target'
+        type: choice
+        options: [DEBUG, RELEASE]
+        default: DEBUG
+      unixnu_ref:
+        description: 'UniXNU branch/tag/commit'
+        type: string
+        default: main
+      force_build:
+        description: 'Build even if the preflight failed (escape hatch)'
+        type: boolean
+        default: false
+  push:
+    branches: [main]
+    paths:
+      - 'board.toml'
+      - 'configs/**'
+      - 'scripts/**'
+      - '.github/workflows/stage1-firmware.yml'
+
+concurrency:
+  group: stage1-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # The driver reads these, so the commands below need no long --flags.
+  UNIXNU_UEFI: ${{ github.workspace }}/Mu-Silicium
+  UNIXNU_DTB: ${{ github.workspace }}/Mu-Silicium/Platforms/Xiaomi/nuwaPkg/FdtBlob/sm8550-xiaomi-nuwa.dtb
+  UNIXNU_OUT: ${{ github.workspace }}/UniXNU/out
+
+jobs:
+  # Cheap gate first: a wrong memory map costs three minutes, a broken firmware build costs thirty.
+  preflight:
+    name: preflight (nuwaPkg inputs)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: device
+
+      - name: Checkout Mu-Silicium (nuwaPkg lives on main)
+        uses: actions/checkout@v4
+        with:
+          repository: Project-Silicium/Mu-Silicium
+          path: Mu-Silicium
+          fetch-depth: 1
+          submodules: false
+
+      - name: Cross-check nuwaPkg config, dsc and memory map
+        working-directory: device
+        env:
+          UNIXNU_UEFI: ${{ github.workspace }}/Mu-Silicium
+        run: python3 scripts/check-nuwa.py
+
+  firmware:
+    name: firmware + boot image (${{ inputs.target || 'DEBUG' }})
+    needs: preflight
+    if: ${{ needs.preflight.result == 'success' || inputs.force_build == true }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - name: Checkout device repository
+        uses: actions/checkout@v4
+        with:
+          path: device
+          submodules: recursive
+
+      - name: Checkout UniXNU build driver
+        uses: actions/checkout@v4
+        with:
+          repository: UniXNU/UniXNU
+          ref: ${{ inputs.unixnu_ref || 'main' }}
+          path: UniXNU
+          submodules: recursive
+
+      - name: Checkout Mu-Silicium
+        uses: actions/checkout@v4
+        with:
+          repository: Project-Silicium/Mu-Silicium
+          path: Mu-Silicium
+          fetch-depth: 1
+          submodules: false   # the driver initializes the four submodules board.toml asks for
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential clang lld llvm nasm iasl uuid-dev \
+            device-tree-compiler mtools python3 git ca-certificates
+
+      - name: Put versioned LLVM tools on PATH
+        # EDK II's CLANGPDB looks for unversioned clang / lld-link / llvm-lib / llvm-rc,
+        # while the Ubuntu packages install them as /usr/lib/llvm-<n>/bin/*.
+        run: |
+          mkdir -p "$HOME/llvmbin"
+          for tool in clang lld-link llvm-lib llvm-rc llvm-objcopy llvm-nm; do
+            path="$(command -v "$tool" || true)"
+            if [ -z "$path" ]; then
+              path="$(ls /usr/lib/llvm-*/bin/"$tool" 2>/dev/null | head -n1)"
+            fi
+            if [ -z "$path" ]; then
+              echo "::error::missing $tool (apt llvm/lld/clang)"; exit 1
+            fi
+            ln -sf "$path" "$HOME/llvmbin/$tool"
+            echo "$tool -> $path"
+          done
+          echo "$HOME/llvmbin" >> "$GITHUB_PATH"
+
+      - name: Select the board configuration
+        working-directory: UniXNU
+        run: python3 ./unixnu defconfig nuwa_defconfig -D "$GITHUB_WORKSPACE/device"
+
+      - name: Build the firmware volume
+        working-directory: UniXNU
+        run: |
+          python3 ./unixnu build firmware \
+            --uefi "$UNIXNU_UEFI" \
+            --target "${{ inputs.target || 'DEBUG' }}"
+
+      - name: Pack the boot image
+        working-directory: UniXNU
+        run: |
+          python3 ./unixnu bootimg \
+            --uefi "$UNIXNU_UEFI" \
+            --dtb "$UNIXNU_DTB" \
+            --target "${{ inputs.target || 'DEBUG' }}"
+
+      - name: Report the build state
+        if: always()
+        working-directory: UniXNU
+        run: python3 ./unixnu status || true
+
+      - name: Upload firmware, boot image and logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nuwa-stage1-${{ inputs.target || 'DEBUG' }}-${{ github.run_number }}
+          path: |
+            UniXNU/out/nuwa/boot/**
+            Mu-Silicium/Build/nuwaPkg/**
+            UniXNU/out/nuwa/logs/**
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Explain a failure
+        if: failure()
+        run: |
+          echo "### stage 1 failed" >> "$GITHUB_STEP_SUMMARY"
+          echo "Look at the step log first, then at out/nuwa/logs/ in the artifact:" >> "$GITHUB_STEP_SUMMARY"
+          echo "- firmware.log   EDK II build output" >> "$GITHUB_STEP_SUMMARY"
+          echo "- basetools.log  BaseTools C build" >> "$GITHUB_STEP_SUMMARY"
+          echo "- firmware-preflight.log  scripts/check-nuwa.py" >> "$GITHUB_STEP_SUMMARY"

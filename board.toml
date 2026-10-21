@@ -1,13 +1,17 @@
-# Board description of the Xiaomi Pad 6S Pro (sheng, SM8550), read by the unixnu build driver.
+# Board description of the Xiaomi 13 Pro (nuwa, SM8550), read by the unixnu build driver.
+#
+# 状态：草稿（2026-10-21），尚未编译、未上机。结构照 UniXNU-sheng 抄，经 UniXNU-vermeer（红米 K70，
+# 同为 SM8550 手机）验证过"手机形态只换标识、不动 sheng-* 内核参数"这条路可行。
+# 标记 TODO(必改) 的字段是设备专属值，必须用 nuwa 自己的固件/分区表核对后才能用。
 
 [board]
-name = "sheng"
+name = "nuwa"
 soc = "SM8550"
-description = "Xiaomi Pad 6S Pro"
-kit = "sheng"                      # the package/ of this repository appears as kits/sheng in the build tree
+description = "Xiaomi 13 Pro"
+kit = "nuwa"                       # the package/ of this repository appears as kits/nuwa in the build tree
 
-# The target OS image: the unchanged iPad7,1 iPadOS 17.7.11 restore image. Give --ipsw PATH to use a local file; without
-# it the remote url is read with range requests, only the members that are needed.
+# The target OS image: the unchanged iPad7,1 iPadOS 17.7.11 restore image, identical to sheng and vermeer
+# (the whole qualified chain - prelink roots, trust caches, kernel args - targets this build).
 [ipsw]
 url = "https://updates.cdn-apple.com/2025SpringFCS/fullrestores/122-77166/DCA6CFE8-90E9-4B92-880D-3DE171798E40/iPad_Pro_HFR_17.7.11_21H461_Restore.ipsw"
 product = "iPad7,1"
@@ -23,7 +27,11 @@ fetch = ["KernelCache", "DeviceTree", "StaticTrustCache", "Cryptex1,SystemTrustC
 "044-76034-038.dmg" = "b4908cde41d23e6bc05e6af51a2c9eeb00cf0f863a6a18b1600c96a3fd70414f"
 
 # The raw image for the userdata partition: the OS and SystemOS disk images of the IPSW behind a manifest.
-# first_lba and last_lba are the GPT entry "userdata" of LUN 0, read from the tablet.
+# first_lba / last_lba are the GPT entry "userdata" of LUN 0, read from the device.
+#
+# TODO(必改): 下面两个 LBA 是 sheng 的值，只作占位。nuwa 必须自己读：
+#   fastboot oem get-partition-info userdata     或   dump GPT 后取 "userdata" 条目
+# 注意 vermeer 仓里也是这两个数且带同样 TODO，说明它们可能只是照抄，不能当交叉验证。
 [userdata]
 first_lba = 0x2f3840
 last_lba = 0x3d0abfa
@@ -34,9 +42,10 @@ windows = [
 ]
 
 [kernel]
-defconfig = "sheng_defconfig"
-# Archive builders of the kernel step, in order. Each is a script of the build tree with its arguments. The VerifiedRoot
-# and VirtIO verified bundles are not built here; they need the volume policies of the target image.
+defconfig = "nuwa_defconfig"
+# Archive builders of the kernel step, in order. Same list as sheng: these are SoC-level components plus the
+# sheng package's own kits. The first bring-up boots the sheng kit on nuwa hardware, so keep this identical;
+# device-specific pieces (touch!) are replaced later, not now.
 archives = [
   "build-corecrypto-14.py",
   "build-corecrypto-14.py --namespace",
@@ -100,10 +109,14 @@ roots = [
 ]
 
 [firmware]
-config = "sheng"                   # Resources/Configs/sheng.toml in the Mu-Silicium checkout (--uefi)
-dsc = "Platforms/Xiaomi/shengPkg/sheng.dsc"
-fd = "Build/shengPkg/{target}_CLANGPDB/FV/SILICIUM_UEFI.fd"
-preflight = ["scripts/check-sheng.py"]
+# 机子的固件代际是 MIUI 14 / Android 13（内核 5.15），与 sheng 的 OS3.0.305、K70 的 OS1.0 都不是一代。
+# 下面的 config/dsc 名可沿用（那是 Mu-Silicium 的构建配置），但 FD 窗口与 Display Reserved 必须用
+# 机主自己 ROM 里的 uefi.elf → uefiextract → RawFiles/uefiplat.cfg 核对一遍再定。
+config = "nuwa"                    # Resources/Configs/nuwa.toml in the Mu-Silicium checkout (--uefi)
+dsc = "Platforms/Xiaomi/nuwaPkg/nuwa.dsc"
+fd = "Build/nuwaPkg/{target}_CLANGPDB/FV/SILICIUM_UEFI.fd"
+# TODO: uefi-nuwa 自己的预检脚本，照 sheng 的 scripts/check-sheng.py 改（核对固件文件齐全、FD 窗口）
+preflight = ["scripts/check-nuwa.py"]
 submodules = ["Common/Mu", "Common/Mu_OEM_Sample", "Silicium-ACPI", "Silicon/Silicium/OpensslPkg/Library/OpensslLib/openssl"]
 patches = ["Resources/MuPatches/Gic-Spurious.patch"]
 packages = [
@@ -121,28 +134,36 @@ packages = [
   "{uefi}/Silicium-ACPI/Silicon/Qualcomm",
 ]
 
+# FD 窗口取自 Mu-Silicium 的 Resources/Configs/nuwa.toml（已核实：base 0xA7100000 / size 0x300000，
+# 与 sheng 相同）。FD_BASE / FD_SIZE / FD_BLOCKS 由 unixnu 驱动从这里或 Resources/Configs 传下去。
 [firmware.defines]
 ENABLE_SECUREBOOT = "1"
-DEVICE_MODEL = "sheng"
+DEVICE_MODEL = "nuwa"
 MEMORY_PROTECTION = "TRUE"
 SHIP_MODE = "FALSE"
-BUILDID_STRING = "sheng-research"
+BUILDID_STRING = "nuwa-research"
 
 # The ramdisk of the boot image: a FAT volume with the UniXNU config, the kernel, its device tree and
 # the optional trust cache and Data seed. The loader (DarwinBoot) is part of the firmware volume.
 [payload]
-volume = "SHENGESP"
+volume = "NUWAESP"
+# TODO(必改): nuwa 的 vendor_boot 只有 96 MiB（boot 192 / init_boot 8 / dtbo 24，已核实），
+# 192 MiB 的 ESP 装不进去 —— uke 那条"payload 放 vendor_boot"的做法不能原样照搬。
+# 三选一：压到 64 以内 / 走 boot（192，卡满不留余量）/ UEFI FD 与 payload 分开装。
 size_mib = 192
 loader = "firmware"
-title = "sheng first boot: source 4K XNU to console"
-dram_size = "0x80000000"             # SMEM RAM table observed on the device
+title = "nuwa first boot: source 4K XNU to console"
+dram_size = "0x80000000"             # first-boot window as sheng; TODO 上机后用 SMEM RAM 表实测值替换
 skip_setup_tool = "scripts/seed-data-skip-setup.py"   # used by --skip-setup
 panic_screen = true                  # patch panic() screen output into the payload copy of the kernel
 # The original static/System trust caches, and the owner trust bundle built around them.
+# Same IPSW as sheng, so the same hashes are correct here.
 trust_cache_sha256 = [
   "7416ca4f8377146626bb284e2133c76bee6cb4e3ee0af5d648b186235a7323a7",
   "8900d6a93d7a59ce1a872a5c081e559f4240a218f97e12d44d22dda46644d68f",
 ]
+# sheng-* 参数保持原样：第一版跑的是 sheng package 的驱动代码（NativeLegacyDisplay / ShengPlatformPower /
+# 触控等），参数名和实现绑死。等 nuwa 自己的 kit 分歧了再改名，不要提前动。
 kernel_args = [
   "-v",
   "serial=3",
@@ -189,7 +210,7 @@ kernel_args = [
 ]
 
 [payload.adt]
-tool = "scripts/make-sheng-adt.py"
+tool = "scripts/make-nuwa-adt.py"
 chip_id = "207"
 owned_memory_size = "0x130000000"
 root_match_volume_uuid = "04769D26-2CA0-4825-B443-E2E5F88300F2"
@@ -201,6 +222,11 @@ unique_chip_id = "required"          # the platform seed is not stored in any re
 # Image parameters come from the Mu-Silicium device config; [bootimg.image] would override them.
 
 # The stock ABL powers the panel off when the device tree has no splash region, so add it.
+#
+# 值已核实：来自 nuwaPkg 自己的 Library/MemoryMapLib/MemoryMapLib.c
+#   {"Display Reserved", 0xB8000000, 0x02B00000, AddMem, MEM_RES, SYS_MEM_CAP, Reserv, WRITE_THROUGH_XN}
+# 与 sheng 的数值相同，但这里是 nuwa 自己的出处，不是照抄。复核命令：
+#   python scripts/check-nuwa-memmap.py --dtb refs/nuwaPkg/sm8550-xiaomi-nuwa.dtb --memmap refs/nuwaPkg/MemoryMapLib.c
 [[bootimg.dtb_node]]
 path = "/reserved-memory/splash_region"
 props = [

@@ -1,0 +1,223 @@
+# Kernel leg of the nuwa port. This is the one step that cannot run on Linux:
+# `unixnu build kernel` calls xcodebuild with the iPhoneOS SDK, and `prelink` decodes the
+# IPSW kernelcache with /usr/bin/compression_tool. Both exist on a macOS runner.
+#
+# Produces out/nuwa/kernel/kernel.macho (the prelinked kernel) and its report.
+# The optional `assemble` job then pulls the latest firmware volume from stage1-firmware.yml
+# and builds the payload + boot image on Linux, so the chain closes without a Mac at home.
+#
+# Cost: this job is the expensive one (~40-70 min). Public repositories get macOS runner
+# minutes free; on a private repository macOS counts 10x against the plan's quota.
+
+name: kernel
+
+on:
+  workflow_dispatch:
+    inputs:
+      unixnu_ref:
+        description: 'UniXNU branch/tag/commit'
+        type: string
+        default: main
+      assemble:
+        description: 'Also build the payload and boot image (needs one successful stage1 run)'
+        type: boolean
+        default: false
+      jobs:
+        description: 'Parallel jobs for the XNU build'
+        type: string
+        default: '3'
+
+permissions:
+  contents: read
+  actions: read          # the assemble job reads artifacts from an earlier stage1 run
+
+concurrency:
+  group: kernel-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  UNIXNU_OUT: ${{ github.workspace }}/UniXNU/out
+  UNIXNU_UEFI: ${{ github.workspace }}/Mu-Silicium
+  UNIXNU_DTB: ${{ github.workspace }}/Mu-Silicium/Platforms/Xiaomi/nuwaPkg/FdtBlob/sm8550-xiaomi-nuwa.dtb
+
+jobs:
+  kernel:
+    name: XNU kernel + prelink (macos-14)
+    runs-on: macos-14
+    timeout-minutes: 180
+    steps:
+      - name: Checkout device repository
+        uses: actions/checkout@v4
+        with:
+          path: device
+          submodules: recursive
+
+      - name: Checkout UniXNU build driver
+        uses: actions/checkout@v4
+        with:
+          repository: UniXNU/UniXNU
+          ref: ${{ inputs.unixnu_ref || 'main' }}
+          path: UniXNU
+          submodules: recursive
+
+      - name: Install Homebrew tools the kernel step expects
+        # kernel.py looks for cmake/ninja/unifdef and prefers /opt/homebrew/opt/llvm/bin.
+        run: brew install cmake ninja unifdef llvm dtc mtools
+
+      - name: Check the runner disk budget
+        # Two XNU passes plus Apple sources and the IPSW kernelcache slice; a 14 GB runner gets tight.
+        run: |
+          df -h /
+          echo "::notice::XNU needs several GB; if the build dies with 'No space left', drop the two cache steps."
+
+      - name: Select the board configuration
+        working-directory: UniXNU
+        run: python3 ./unixnu defconfig nuwa_defconfig -D "$GITHUB_WORKSPACE/device"
+
+      - name: Cache fetched Apple sources
+        # ~2-3 GB of shallow clones; without this every run re-downloads them.
+        uses: actions/cache@v4
+        with:
+          path: UniXNU/out/nuwa/refer
+          key: nuwa-refer-${{ inputs.unixnu_ref || 'main' }}-${{ github.run_id }}
+          restore-keys: |
+            nuwa-refer-${{ inputs.unixnu_ref || 'main' }}-
+
+      - name: Cache the XNU object tree
+        # The kernel step runs two passes (bootstrap for the compile records, then the real link),
+        # so a warm object tree roughly halves the wall clock. Delete this step if it ever hides a
+        # change: the key includes the defconfig and board file hashes.
+        uses: actions/cache@v4
+        with:
+          path: |
+            UniXNU/out/nuwa/tree/build/xnu
+            UniXNU/out/nuwa/tree/.cache/xnu-work
+          key: nuwa-xnu-${{ hashFiles('device/configs/nuwa_defconfig', 'device/board.toml') }}-${{ github.run_id }}
+          restore-keys: |
+            nuwa-xnu-${{ hashFiles('device/configs/nuwa_defconfig', 'device/board.toml') }}-
+
+      - name: Build the kernel and prelink it
+        working-directory: UniXNU
+        env:
+          JOBS: ${{ inputs.jobs || '3' }}
+        run: |
+          python3 ./unixnu build kernel \
+            -D "$GITHUB_WORKSPACE/device" \
+            -j "${JOBS}"
+
+      - name: Report the build state
+        if: always()
+        working-directory: UniXNU
+        run: python3 ./unixnu status || true
+
+      - name: Upload the prelinked kernel and logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nuwa-kernel-${{ github.run_number }}
+          path: |
+            UniXNU/out/nuwa/kernel/**
+            UniXNU/out/nuwa/logs/**
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Explain a failure
+        if: failure()
+        run: |
+          {
+            echo "### kernel step failed"
+            echo ""
+            echo "Log order that usually finds it:"
+            echo "1. \`kernel-bootstrap.log\` — the first pass is expected to stop at the link; a real compile error hides here"
+            echo "2. \`archive-NN-*.log\` — board.toml [kernel] archives, in order"
+            echo "3. \`kernel.log\` — the real link"
+            echo "4. \`prelink.log\` — kernelcache download, sha256 check, emit_prelink"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  assemble:
+    name: payload + boot image (ubuntu)
+    needs: kernel
+    if: ${{ inputs.assemble && needs.kernel.result == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Checkout device repository
+        uses: actions/checkout@v4
+        with:
+          path: device
+          submodules: recursive
+
+      - name: Checkout UniXNU build driver
+        uses: actions/checkout@v4
+        with:
+          repository: UniXNU/UniXNU
+          ref: ${{ inputs.unixnu_ref || 'main' }}
+          path: UniXNU
+          submodules: recursive
+
+      - name: Checkout Mu-Silicium
+        uses: actions/checkout@v4
+        with:
+          repository: Project-Silicium/Mu-Silicium
+          path: Mu-Silicium
+          fetch-depth: 1
+          submodules: false
+
+      - name: Install payload/bootimg dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential clang lld llvm device-tree-compiler mtools python3 git
+
+      - name: Find the most recent successful stage1 run
+        id: stage1
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          run_id=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow stage1-firmware.yml \
+                     --status success --limit 1 --json databaseId --jq '.[0].databaseId')
+          if [ -z "$run_id" ]; then
+            echo "::error::no successful stage1-firmware run yet; run that workflow first (or pass the .fd another way)"
+            exit 1
+          fi
+          echo "run_id=$run_id" >> "$GITHUB_OUTPUT"
+          echo "using stage1 run $run_id"
+
+      - name: Download the firmware volume from that run
+        uses: actions/download-artifact@v4
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          run-id: ${{ steps.stage1.outputs.run_id }}
+          pattern: nuwa-stage1-*
+          path: stage1-artifacts
+
+      - name: Download this run's kernel
+        uses: actions/download-artifact@v4
+        with:
+          name: nuwa-kernel-${{ github.run_number }}
+          path: kernel-artifact
+
+      - name: Build the payload and pack the boot image
+        working-directory: UniXNU
+        run: |
+          fd=$(find "$GITHUB_WORKSPACE/stage1-artifacts" -name SILICIUM_UEFI.fd | head -n1)
+          kernel=$(find "$GITHUB_WORKSPACE/kernel-artifact" -name 'kernel.macho' | head -n1)
+          test -n "$fd" || { echo "::error::SILICIUM_UEFI.fd not found in the stage1 artifact"; exit 1; }
+          test -n "$kernel" || { echo "::error::kernel.macho not found in the kernel artifact"; exit 1; }
+          echo "firmware: $fd"
+          echo "kernel  : $kernel"
+          python3 ./unixnu defconfig nuwa_defconfig -D "$GITHUB_WORKSPACE/device"
+          python3 ./unixnu build payload -D "$GITHUB_WORKSPACE/device" --kernel "$kernel"
+          python3 ./unixnu bootimg -D "$GITHUB_WORKSPACE/device" \
+            --uefi "$UNIXNU_UEFI" --fd "$fd" --dtb "$UNIXNU_DTB"
+
+      - name: Upload the boot image with payload
+        uses: actions/upload-artifact@v4
+        with:
+          name: nuwa-boot-payload-${{ github.run_number }}
+          path: |
+            UniXNU/out/nuwa/boot/**
+            UniXNU/out/nuwa/payload/**
+            UniXNU/out/nuwa/logs/**
+          if-no-files-found: warn
+          retention-days: 14
