@@ -8,7 +8,10 @@
 name = "nuwa"
 soc = "SM8550"
 description = "Xiaomi 13 Pro"
-kit = "nuwa"                       # the package/ of this repository appears as kits/nuwa in the build tree
+# 第一版直接跑 sheng package 的驱动代码（ShengPlatformPower / LegacyDisplayProbe / TouchProbe 等），
+# 这些驱动脚本硬编码 kits/sheng 路径，所以 kit 保持 "sheng"（package/ 出现在 build tree 的 kits/sheng）。
+# 等 nuwa 自己的 kit 真正分歧后，再改成 "nuwa" 并同步所有 scripts 里的 kits/sheng 引用。
+kit = "sheng"
 
 # The target OS image: the unchanged iPad7,1 iPadOS 17.7.11 restore image, identical to sheng and vermeer
 # (the whole qualified chain - prelink roots, trust caches, kernel args - targets this build).
