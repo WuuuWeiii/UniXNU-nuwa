@@ -11,12 +11,6 @@
 
 name: kernel
 
-# macOS arm64 runners queue for minutes, so never let two builds of the same ref pile up:
-# a retried dispatch after a network error would otherwise sit in the queue behind itself.
-concurrency:
-  group: kernel-${{ github.ref }}
-  cancel-in-progress: true
-
 on:
   workflow_dispatch:
     inputs:
@@ -37,9 +31,11 @@ permissions:
   contents: read
   actions: read          # the assemble job reads artifacts from an earlier stage1 run
 
+# macOS arm64 runners queue for minutes; a dispatch retried after a network error would
+# otherwise sit behind an identical build, so let a newer run supersede the older one.
 concurrency:
   group: kernel-${{ github.ref }}
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 env:
   UNIXNU_OUT: ${{ github.workspace }}/UniXNU/out
