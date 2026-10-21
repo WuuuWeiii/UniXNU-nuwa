@@ -112,7 +112,7 @@ roots = [
 # 机子的固件代际是 MIUI 14 / Android 13（内核 5.15），与 sheng 的 OS3.0.305、K70 的 OS1.0 都不是一代。
 # 下面的 config/dsc 名可沿用（那是 Mu-Silicium 的构建配置），但 FD 窗口与 Display Reserved 必须用
 # 机主自己 ROM 里的 uefi.elf → uefiextract → RawFiles/uefiplat.cfg 核对一遍再定。
-config = "nuwa"                    # Resources/Configs/nuwa.toml in the Mu-Silicium checkout (--uefi)
+config = "nuwa"                    # Resources/Configs/nuwa.toml in the uefi-nuwa checkout (--uefi)
 dsc = "Platforms/Xiaomi/nuwaPkg/nuwa.dsc"
 fd = "Build/nuwaPkg/{target}_CLANGPDB/FV/SILICIUM_UEFI.fd"
 # TODO: uefi-nuwa 自己的预检脚本，照 sheng 的 scripts/check-sheng.py 改（核对固件文件齐全、FD 窗口）

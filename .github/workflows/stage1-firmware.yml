@@ -4,7 +4,7 @@
 #   SILICIUM_UEFI.fd   the EDK II firmware volume for nuwaPkg
 #   boot.img           gzip(BootShim + firmware volume) + the nuwa device tree, for `fastboot boot`
 #
-# Runs on a stock ubuntu-latest runner: everything stage 1 needs (EDK II, clang/lld, dtc, mtools)
+# Runs on a stock ubuntu-24.04 runner (pinned: ubuntu-latest is migrating to 26): everything stage 1 needs (EDK II, clang/lld, dtc, mtools)
 # is available on Linux. See docs/CI-阶段1.md for the repository layout this expects.
 
 name: stage1-firmware
@@ -47,17 +47,17 @@ jobs:
   # Cheap gate first: a wrong memory map costs three minutes, a broken firmware build costs thirty.
   preflight:
     name: preflight (nuwaPkg inputs)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
         with:
           path: device
 
-      - name: Checkout Mu-Silicium (nuwaPkg lives on main)
+      - name: Checkout uefi-nuwa (Mu-Silicium fork with the GIC patch)
         uses: actions/checkout@v4
         with:
-          repository: Project-Silicium/Mu-Silicium
+          repository: pubglite55/uefi-nuwa
           path: Mu-Silicium
           fetch-depth: 1
           submodules: false
@@ -72,7 +72,7 @@ jobs:
     name: firmware + boot image (${{ inputs.target || 'DEBUG' }})
     needs: preflight
     if: ${{ needs.preflight.result == 'success' || inputs.force_build == true }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 90
     steps:
       - name: Checkout device repository
@@ -92,7 +92,7 @@ jobs:
       - name: Checkout Mu-Silicium
         uses: actions/checkout@v4
         with:
-          repository: Project-Silicium/Mu-Silicium
+          repository: pubglite55/uefi-nuwa
           path: Mu-Silicium
           fetch-depth: 1
           submodules: false   # the driver initializes the four submodules board.toml asks for
