@@ -35,8 +35,10 @@ CONFIG_XNU_NATIVE_LEGACY_DISPLAY=y
 #   BOOT_PROGRESS
 #       基础构建在缺少 audited UFS/owner-root、VirtIO 与 source-crypto 时拒绝它。
 #   NATIVE_ADRENO
-#       nuwa 是 SM8550（Adreno 740），与 sheng 完全同 SoC，驱动已认识 A740，故**打开**。
-#       (uke 关掉是因为它是 SM7675 / Adreno 732，驱动还不认识。)
+#       nuwa 是 SM8550 / Adreno 740（与 sheng 同 SoC），驱动已认识 A740；但 NativeAdreno
+#       的 archive 需要从真机 vendor 分区提取的 GMU/SQE/ZAP 固件（.cache/firmware/sheng-gpu），
+#       且 build-native-legacy-display 的 GpuPowerProbe 会引用 Adreno 符号。bring-up 阶段先关，
+#       等真机固件提取后再开（并同步省略 GpuPowerProbe 的改动）。
 CONFIG_XNU_NATIVE_VIRTIO_BLOCK=n
 CONFIG_XNU_NATIVE_RAM_BLOCK=n
 CONFIG_XNU_VERIFIED_ROOT_PROBE=n
@@ -48,7 +50,7 @@ CONFIG_XNU_OWNER_BOOT_MANIFEST=n
 CONFIG_XNU_OWNER_DATA_MOUNT=n
 CONFIG_XNU_OWNER_UNION_SYSTEMOS=n
 CONFIG_XNU_BOOT_PROGRESS=n
-CONFIG_XNU_NATIVE_ADRENO=y
+CONFIG_XNU_NATIVE_ADRENO=n
 
 CONFIG_XNU_CRYPTO_BOOTSTRAP="prelinked"
 CONFIG_XNU_EXTRA_LD_ARCHIVES=""
