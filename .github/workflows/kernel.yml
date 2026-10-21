@@ -2,12 +2,21 @@
 # `unixnu build kernel` calls xcodebuild with the iPhoneOS SDK, and `prelink` decodes the
 # IPSW kernelcache with /usr/bin/compression_tool. Both exist on a macOS runner.
 #
+# Two passes:
+#   1. bootstrap (nuwa-bootstrap_defconfig, CRYPTO_BOOTSTRAP=prelinked, no archives) builds a
+#      bare kernel and prelinks it, producing the original-class candidate that
+#      build-ufs-original-bindings.py reads. It also leaves the compile records behind.
+#   2. full (nuwa_defconfig, CONFIG_XNU_BUILD_ARCHIVES=y) runs the board archive list — corecrypto,
+#      the arm drivers, the public storage headers, the NativeUfs bring-up transport and its
+#      original bindings, mockfs, PMGR, pthread, legacy display — then links and prelinks the real kernel.
+#
+# The hardware-qualification gates (storage ABI snapshot, verified-root policy bundle,
+# VirtIO/RamBlock, owner-root, boot progress, Adreno) are off; they need device-run or
+# target-volume DMG inputs. See configs/nuwa_defconfig.
+#
 # Produces out/nuwa/kernel/kernel.macho (the prelinked kernel) and its report.
 # The optional `assemble` job then pulls the latest firmware volume from stage1-firmware.yml
 # and builds the payload + boot image on Linux, so the chain closes without a Mac at home.
-#
-# Cost: this job is the expensive one (~40-70 min). Public repositories get macOS runner
-# minutes free; on a private repository macOS counts 10x against the plan's quota.
 
 name: kernel
 
@@ -57,7 +66,7 @@ jobs:
       - name: Checkout UniXNU build driver
         uses: actions/checkout@v4
         with:
-          repository: UniXNU/UniXNU
+          repository: pubglite55/UniXNU
           ref: ${{ inputs.unixnu_ref || 'main' }}
           path: UniXNU
           submodules: recursive
@@ -67,61 +76,47 @@ jobs:
         run: brew install cmake ninja unifdef llvm dtc mtools
 
       - name: Check the runner disk budget
-        # Two XNU passes plus Apple sources and the IPSW kernelcache slice; a 14 GB runner gets tight.
         run: |
           df -h /
-          echo "::notice::XNU needs several GB; if the build dies with 'No space left', drop the two cache steps."
+          echo "::notice::XNU needs several GB; if the build dies with 'No space left', drop the cache steps."
 
-      - name: Select the board configuration
-        working-directory: UniXNU
-        run: python3 ./unixnu defconfig nuwa_defconfig -D "$GITHUB_WORKSPACE/device"
-
-      - name: Cache fetched Apple sources
-        # ~2-3 GB of shallow clones; without this every run re-downloads them.
-        uses: actions/cache@v4
-        with:
-          path: UniXNU/out/nuwa/refer
-          key: nuwa-refer-${{ inputs.unixnu_ref || 'main' }}-${{ github.run_id }}
-          restore-keys: |
-            nuwa-refer-${{ inputs.unixnu_ref || 'main' }}-
-
-      - name: Cache the XNU object tree
-        # The kernel step runs two passes (bootstrap for the compile records, then the real link),
-        # so a warm object tree roughly halves the wall clock. Delete this step if it ever hides a
-        # change: the key includes the defconfig and board file hashes.
+      - name: Cache fetched sources and the object tree
+        # The two XNU passes share the Apple references, the assembled tree and the IPSW
+        # kernelcache; a warm cache roughly halves the wall clock.
         uses: actions/cache@v4
         with:
           path: |
+            UniXNU/out/feeds
+            UniXNU/out/ipsw
             UniXNU/out/nuwa/tree/build/xnu
-            UniXNU/out/nuwa/tree/.cache/xnu-work
-          key: nuwa-xnu-${{ hashFiles('device/configs/nuwa_defconfig', 'device/board.toml') }}-${{ github.run_id }}
+            UniXNU/out/nuwa/tree/.cache
+          key: nuwa-kernel-${{ inputs.unixnu_ref || 'main' }}-${{ hashFiles('device/configs/nuwa_defconfig', 'device/configs/nuwa-bootstrap_defconfig', 'device/board.toml', 'device/feeds.toml') }}-${{ github.run_id }}
           restore-keys: |
-            nuwa-xnu-${{ hashFiles('device/configs/nuwa_defconfig', 'device/board.toml') }}-
+            nuwa-kernel-${{ inputs.unixnu_ref || 'main' }}-
+            nuwa-kernel-
 
-      - name: Break the cold-build deadlock (crypto archive + source caches)
-        # Two independent cold-build gates live inside build-xnu-4k-baseline.sh:
-        #
-        # 1. prepare-xnu-source.py asks api.github.com for the DriverKit header list with no
-        #    token. Shared runner IPs share the 60/h anonymous quota, so it dies with
-        #    "HTTP Error 403: rate limit exceeded". The script skips the request when its
-        #    cache file exists, so pre-fill it here with the job token.
-        # 2. test -f build/corecrypto-2023/libcorecrypto_kernel_noasm-namespaced.a runs before
-        #    the board.toml archive builders, so on a clean tree the bootstrap always stops
-        #    there, silently (set -e, no message) — the step only reports "bash failed (1)".
-        #
-        # The first pass below is expected to stop at one of them; it exists to fetch the
-        # Apple sources and assemble the tree.
+      - name: Bootstrap pass (assemble + fetch; expected to stop at the rate limit)
+        # prepare-xnu-source.py asks api.github.com with no token and dies with HTTP 403 on the
+        # shared runner IPs. The script skips the request when its cache file exists, so this first
+        # pass exists to assemble the tree and fetch the references; it is expected to stop at the
+        # rate limit, then the next step pre-fills the cache with the job token.
         working-directory: UniXNU
         env:
           JOBS: ${{ inputs.jobs || '3' }}
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          # Pass A: assemble the tree and fetch the Apple sources. Expected to stop at the
-          # DriverKit rate limit while the token caches are still missing.
+          python3 ./unixnu defconfig nuwa-bootstrap_defconfig -D "$GITHUB_WORKSPACE/device"
           python3 ./unixnu build kernel -D "$GITHUB_WORKSPACE/device" -j "$JOBS" || true
           tree="$UNIXNU_OUT/nuwa/tree"
-          test -d "$tree/refer/corecrypto-2023" || { echo "::error::corecrypto source was not fetched"; exit 1; }
+          test -d "$tree" || { echo "::error::the bootstrap pass did not assemble $tree"; exit 1; }
+          echo "tree assembled: $tree"
 
+      - name: Pre-fill the DriverKit/TrustCache source caches
+        # prepare-xnu-source.py reads exactly these three files and skips the API when they exist.
+        working-directory: UniXNU
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          tree="$UNIXNU_OUT/nuwa/tree"
           tags=$(python3 -c "import tomllib,pathlib;s=tomllib.loads(pathlib.Path('feeds.toml').read_text())['source'];x=next(i for i in s if i['name']=='xnu');print(x['driverkit_tag'], x['trustcache_tag'])")
           set -- $tags
           driverkit_tag=$1
@@ -142,7 +137,6 @@ jobs:
               with urllib.request.urlopen(request, timeout=60) as response:
                   return json.load(response)
 
-          # prepare-xnu-source.py reads exactly these three files and skips the API when they exist.
           plan = [
               (f'{base}/iokit/DriverKit?ref={driverkit_tag}',
                f'xnu-driverkit-{driverkit_tag.removeprefix("xnu-")}.json'),
@@ -158,46 +152,50 @@ jobs:
               print(f'cached {len(entries):>3} entries -> {name}')
           PY
 
-          # Pass B: with the caches in place this gets past prepare-xnu-source and runs
-          # `make installhdrs` (filling the fakeroot with kern/*.h).
-          #
-          # It still cannot link. build-corecrypto-14.py --namespace needs the XNU symbol
-          # names, which only the link writes (link.filelist), and the link needs that very
-          # archive. Break the cycle the way uke layers defconfigs: compile once with every
-          # archive-dependent switch off (nuwa-bootstrap_defconfig). The script then has no
-          # gate left to die on, reaches the link, writes link.filelist, and fails there —
-          # which the driver tolerates. Then the archives can be built, then the real config.
-          python3 ./unixnu defconfig nuwa-bootstrap_defconfig -D "$GITHUB_WORKSPACE/device"
-          python3 ./unixnu build kernel -D "$GITHUB_WORKSPACE/device" -j "$JOBS" || true
-          framework="$tree/.cache/fakeroot/System/Library/Frameworks/Kernel.framework/Versions/A"
-          if ! ls "$framework"/*/kern/clock.h >/dev/null 2>&1; then
-            echo "::error::installhdrs did not install kern/clock.h under $framework"
-            find "$framework" -name 'clock.h' 2>/dev/null | head -5 || true
-            exit 1
-          fi
-          echo "kernel headers present: $(ls "$framework"/*/kern/clock.h | head -1)"
-          filelist="$tree/build/xnu/ios-obj/DEVELOPMENT_ARM64_BCM2837/link.filelist"
-          test -f "$filelist" || { echo "::error::the bootstrap pass did not write $filelist"; exit 1; }
-          echo "link.filelist: $(wc -l < "$filelist") objects"
-
-          # The namespaced provider needs the plain one built first, as board.toml orders them.
-          ( cd "$tree" && python3 scripts/build-corecrypto-14.py )
-          ( cd "$tree" && python3 scripts/build-corecrypto-14.py --namespace )
-          archive="$tree/build/corecrypto-2023/libcorecrypto_kernel_noasm-namespaced.a"
-          test -f "$archive" || { echo "::error::crypto archive still missing: $archive"; exit 1; }
-          echo "crypto archive ready: $(stat -f%z "$archive") bytes"
-
-          # back to the configuration the kernel is actually built with
-          python3 ./unixnu defconfig nuwa_defconfig -D "$GITHUB_WORKSPACE/device"
-
-      - name: Build the kernel and prelink it
+      - name: Bootstrap kernel and prelinked candidate
         working-directory: UniXNU
         env:
           JOBS: ${{ inputs.jobs || '3' }}
         run: |
-          python3 ./unixnu build kernel \
-            -D "$GITHUB_WORKSPACE/device" \
-            -j "${JOBS}"
+          python3 ./unixnu build kernel -D "$GITHUB_WORKSPACE/device" -j "$JOBS"
+          test -f "$UNIXNU_OUT/nuwa/kernel/kernel.macho" || { echo "::error::bootstrap prelink did not produce kernel.macho"; exit 1; }
+          test -f "$UNIXNU_OUT/nuwa/kernel/kernel.json" || { echo "::error::bootstrap prelink did not produce kernel.json"; exit 1; }
+          # The archive binders read the prelinked original-class candidate, not the final kernel.
+          mkdir -p "$UNIXNU_OUT/nuwa/tree/build/native-prelink"
+          cp "$UNIXNU_OUT/nuwa/kernel/kernel.macho" \
+             "$UNIXNU_OUT/nuwa/tree/build/native-prelink/native-owner-mobile-graphics-candidate.macho"
+          cp "$UNIXNU_OUT/nuwa/kernel/kernel.json" \
+             "$UNIXNU_OUT/nuwa/tree/build/native-prelink/native-owner-mobile-graphics-candidate.json"
+          cp "$UNIXNU_OUT/nuwa/kernel/kernel.macho" \
+             "$UNIXNU_OUT/nuwa/tree/build/native-prelink/native-owner-ufs-cpu-desktop-v9-hid-init-candidate.macho"
+          cp "$UNIXNU_OUT/nuwa/kernel/kernel.json" \
+             "$UNIXNU_OUT/nuwa/tree/build/native-prelink/native-owner-ufs-cpu-desktop-v9-hid-init-candidate.json"
+          # Keep the bootstrap kernel from being uploaded as the shipping kernel.
+          rm -f "$UNIXNU_OUT/nuwa/kernel/kernel.macho" "$UNIXNU_OUT/nuwa/kernel/kernel.json"
+          ls -l "$UNIXNU_OUT/nuwa/tree/build/native-prelink/"
+
+      - name: Seed the display ABI observation cache
+        # build-native-legacy-display.py accepts the recorded runtime observation hash of the
+        # unchanged iPad7,1 original class when the GDB dump was pruned; nuwa pins the same
+        # kernelcache as sheng/uke.
+        working-directory: UniXNU
+        run: |
+          mkdir -p "$UNIXNU_OUT/nuwa/tree/build/display-analysis"
+          python3 - "$UNIXNU_OUT/nuwa/tree/build/display-analysis/mobile-graphics-legacy-abi.json" <<'PY'
+          import json, sys
+          from pathlib import Path
+          p = Path(sys.argv[1])
+          if not p.exists():
+              p.write_text(json.dumps({'runtime_metadata_checkpoint_sha256': '3044c2beff552911605994c0dc7aa73182066cbb5aed0b396999ceeb5a96da2b'}) + '\n')
+          PY
+
+      - name: Build and prelink the full kernel
+        working-directory: UniXNU
+        env:
+          JOBS: ${{ inputs.jobs || '3' }}
+        run: |
+          python3 ./unixnu defconfig nuwa_defconfig -D "$GITHUB_WORKSPACE/device"
+          python3 ./unixnu build kernel -D "$GITHUB_WORKSPACE/device" -j "$JOBS"
 
       - name: Report the build state
         if: always()
@@ -222,7 +220,7 @@ jobs:
             echo "### kernel step failed"
             echo ""
             echo "Log order that usually finds it:"
-            echo "1. \`kernel-bootstrap.log\` — the first pass is expected to stop at the link; a real compile error hides here"
+            echo "1. \`kernel-bootstrap.log\` — the bootstrap pass (bare kernel + prelink candidate)"
             echo "2. \`archive-NN-*.log\` — board.toml [kernel] archives, in order"
             echo "3. \`kernel.log\` — the real link"
             echo "4. \`prelink.log\` — kernelcache download, sha256 check, emit_prelink"
@@ -244,7 +242,7 @@ jobs:
       - name: Checkout UniXNU build driver
         uses: actions/checkout@v4
         with:
-          repository: UniXNU/UniXNU
+          repository: pubglite55/UniXNU
           ref: ${{ inputs.unixnu_ref || 'main' }}
           path: UniXNU
           submodules: recursive

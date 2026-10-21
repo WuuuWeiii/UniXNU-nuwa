@@ -1,65 +1,50 @@
 #!/usr/bin/env python3
-"""Materialise the IOKit storage headers the arm-driver archives compile against.
+"""Prepare the public IOStorageFamily headers the built-in block drivers compile against.
 
-NativeUfs / NativeVirtioBlock / NativeRamBlock subclass IOBlockStorageDevice. That class
-no longer ships in the source-kernel SDK: it lives in Apple's separate IOStorageFamily
-project (the header was removed from xnu's iokit/IOKit/storage/ at some Darwin 23 point,
-leaving only an IOKitUser forwarding header that points at DriverKit). The arm-driver
-scripts therefore add -I build/storage-abi/include, and this script produces that tree:
-
-  * the IOStorageFamily root headers, pinned to the Darwin 23 revision the storage ABI was
-    qualified against (scripts/audit-storage-interface.py pins the same commit), fetched from
-    raw.githubusercontent.com (a CDN, not the rate-limited api.github.com), and
-  * TargetConditionals.h from the macOS SDK, the platform-selection header those headers
-    include but the kernel fakeroot does not ship.
-
-The output only needs the headers; it is a compile-only shim, never linked or executed.
+IOBlockStorageDevice no longer ships in the source-kernel SDK (it moved to
+Apple's separate IOStorageFamily project), so the arm-driver archives add
+-I build/storage-abi/include. This step materialises that tree from the pinned
+IOStorageFamily feed. The full storage ABI audit (scripts/audit-storage-interface.py)
+also copies these headers, but it additionally needs the live guest metadata
+snapshot and the original kernel candidate; a bring-up build only needs the
+headers, so this keeps the compile independent of that qualification evidence.
 """
+import hashlib
+import json
+from pathlib import Path
 import shutil
 import subprocess
-import urllib.request
-from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+SOURCE = ROOT / 'refer/IOStorageFamily'
 REVISION = 'e45fbe30a7879e0b16e26dddb78538f1b00e0bff'
-BASE = f'https://raw.githubusercontent.com/apple-oss-distributions/IOStorageFamily/{REVISION}'
+OUT = ROOT / 'build/storage-abi'
 
-# Every root header of IOStorageFamily at the pinned revision, minus the kext shim
-# (IOUserBlockStorageDevice_kext.h) which drags in the DriverKit IOUserBlockStorageDevice
-# interface that the kernel build does not have. NativeUfs only reaches
-# IOBlockStorageDevice.h -> IOMedia.h/IOStorage.h -> IOStorage*Characteristics.h.
-HEADERS = [
-    'IOAppleLabelScheme.h',
-    'IOApplePartitionScheme.h',
-    'IOBlockStorageDevice.h',
-    'IOBlockStorageDriver.h',
-    'IOBlockStoragePerfControlExports.h',
-    'IOFDiskPartitionScheme.h',
-    'IOFilterScheme.h',
-    'IOGUIDPartitionScheme.h',
-    'IOMedia.h',
-    'IOMediaBSDClient.h',
-    'IOPartitionScheme.h',
-    'IORequest.h',
-    'IORequestsPool.h',
-    'IOStorage.h',
-    'IOStorageCardCharacteristics.h',
-    'IOStorageControllerCharacteristics.h',
-    'IOStorageDeviceCharacteristics.h',
-    'IOStorageProtocolCharacteristics.h',
-]
+if not (SOURCE / '.git').is_dir():
+    raise SystemExit(f'Missing {SOURCE}; run "unixnu fetch IOStorageFamily" first')
+revision = subprocess.check_output(['git', '-C', SOURCE, 'rev-parse', 'HEAD'], text=True).strip()
+if revision != REVISION:
+    raise SystemExit(f'Unexpected public IOStorageFamily revision: {revision}')
 
-out = ROOT / 'build/storage-abi'
-dest = out / 'include/IOKit/storage'
-dest.mkdir(parents=True, exist_ok=True)
+headers = OUT / 'include/IOKit/storage'
+headers.mkdir(parents=True, exist_ok=True)
+copied = {}
+for path in sorted(SOURCE.glob('*.h')):
+    target = headers / path.name
+    shutil.copyfile(path, target)
+    copied[path.name] = hashlib.sha256(target.read_bytes()).hexdigest()
+if not copied:
+    raise SystemExit('IOStorageFamily has no public headers')
 
-for name in HEADERS:
-    target = dest / name
-    url = f'{BASE}/{name}'
-    with urllib.request.urlopen(url, timeout=60) as response:
-        target.write_bytes(response.read())
-
+# The source kernel SDK does not carry the macOS TargetConditionals.h that the
+# public storage headers include.
 sdk = Path(subprocess.check_output(['xcrun', '--sdk', 'macosx', '--show-sdk-path'], text=True).strip())
-shutil.copyfile(sdk / 'usr/include/TargetConditionals.h', out / 'include/TargetConditionals.h')
+conditions = sdk / 'usr/include/TargetConditionals.h'
+target = OUT / 'include/TargetConditionals.h'
+shutil.copyfile(conditions, target)
 
-print(f'storage-abi: {len(HEADERS)} IOStorageFamily headers + TargetConditionals.h -> {dest.parent}')
+report = dict(source_revision=revision, headers=copied,
+              target_conditionals_sha256=hashlib.sha256(target.read_bytes()).hexdigest(),
+              qualification=False)
+(OUT / 'headers.json').write_text(json.dumps(report, indent=2) + '\n')
+print(f'PASS: {len(copied)} public IOStorageFamily headers prepared (not a storage ABI qualification)')
