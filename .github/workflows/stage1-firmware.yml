@@ -142,10 +142,15 @@ jobs:
       - name: Pack the boot image
         working-directory: UniXNU
         run: |
+          # unixnu's own verifier assumes the v0 field layout and rejects a correct v3 image
+          # ("boot image header does not match the requested parameters"), while nuwa's ABL
+          # only accepts v3+. Tolerate that exit code and validate with our own parser.
           python3 ./unixnu bootimg \
             --uefi "$UNIXNU_UEFI" \
             --dtb "$UNIXNU_DTB" \
-            --target "${{ inputs.target || 'DEBUG' }}"
+            --target "${{ inputs.target || 'DEBUG' }}" || true
+          python3 "$GITHUB_WORKSPACE/device/scripts/check-bootimg.py" \
+            "$UNIXNU_OUT/nuwa/boot/boot.img"
 
       - name: Report the build state
         if: always()
