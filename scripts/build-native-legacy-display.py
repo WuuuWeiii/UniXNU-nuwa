@@ -205,10 +205,12 @@ trace_source=ROOT/'kits/sheng/BootUiTraceProbe.c'
 trace_obj=OUT/'BootUiTraceProbe.o'
 trace_cmd=[str(trace_source) if arg==str(process_source) else str(trace_obj) if arg==str(process_obj) else arg for arg in process_cmd]
 run(trace_cmd,cwd=pr['directory'])
-# UFS diagnostic log writer (sheng-log=1) and the guarded fastboot reset (sheng-autoreset=<seconds>).
-log_source=ROOT/'kits/sheng/BootLog.c'
-log_obj=OUT/'BootLog.o'
-run([str(log_source) if arg==str(process_source) else str(log_obj) if arg==str(process_obj) else arg for arg in process_cmd]+['-I',str(ROOT/'kits/sheng')],cwd=pr['directory'])
+# nuwa first-console: NATIVE_ADRENO / BOOT_PROGRESS / owner-data are off, so BootLog.c's
+# boot_progress_* / native_adreno_* / native_data_persist_* / native_gpu_* imports would be
+# undefined. Omit the UFS diagnostic log writer and supply the weak display stubs instead.
+stub_source=ROOT/'kits/sheng/LegacyDisplayStubs.c'
+stub_obj=OUT/'LegacyDisplayStubs.o'
+run([str(stub_source) if arg==str(process_source) else str(stub_obj) if arg==str(process_obj) else arg for arg in process_cmd],cwd=pr['directory'])
 reset_source=ROOT/'kits/sheng/BootReset.c'
 reset_obj=OUT/'BootReset.o'
 run([str(reset_source) if arg==str(process_source) else str(reset_obj) if arg==str(process_obj) else arg for arg in process_cmd]+['-I',str(ROOT/'kits/sheng')],cwd=pr['directory'])
@@ -241,10 +243,10 @@ run([llvm/'llvm-objcopy','--remove-section=__DATA,__mod_init_func',
      keyevents/'NativeKeyStoreEvents.o',keyevents_late])
 require(code((keyevents/'NativeKeyStoreEvents.o').read_bytes(),macho((keyevents/'NativeKeyStoreEvents.o').read_bytes()))==
         code(keyevents_late.read_bytes(),macho(keyevents_late.read_bytes())),'Owned event-service instructions unchanged by late init staging')
-run(['xcrun','ar','rcs',archive,late,OUT/'original-bindings.o',OUT/'LegacyDisplayProbe.o',hid_obj,keystore_obj,process_obj,trace_obj,log_obj,reset_obj,
+run(['xcrun','ar','rcs',archive,late,OUT/'original-bindings.o',OUT/'LegacyDisplayProbe.o',hid_obj,keystore_obj,process_obj,trace_obj,reset_obj,stub_obj,
      hid_dir/'NativeHidInput.late.o',hid_dir/'hid-original-bindings.o',keyevents_late,touch_cpp_obj,cpufreq_obj,*touch_objs])
 sources=[ROOT/'drivers/NativeMobileDisplay/NativeLegacyDisplay.cpp',
-         ROOT/'drivers/NativeMobileDisplay/NativeLegacyRequest.h',source,hid_source,keystore_source,process_source,trace_source,log_source,reset_source,ROOT/'kits/sheng/BootResetCore.h',ROOT/'kits/sheng/BootUiTraceCore.h',ROOT/'kits/sheng/BootUiTraceDetails.h',
+         ROOT/'drivers/NativeMobileDisplay/NativeLegacyRequest.h',source,hid_source,keystore_source,process_source,trace_source,reset_source,stub_source,ROOT/'kits/sheng/BootResetCore.h',ROOT/'kits/sheng/BootUiTraceCore.h',ROOT/'kits/sheng/BootUiTraceDetails.h',
          ROOT/'drivers/NativeHidInput/NativeHidInput.cpp',ROOT/'scripts/build-native-hid-input.py',
          ROOT/'drivers/NativeKeyStoreEvents/NativeKeyStoreEvents.cpp',touch_cpp,cpufreq_cpp,ROOT/'kits/sheng/TouchBoard.h',
          ROOT/'drivers/NativeGeniSpi/GeniSpi.c',ROOT/'drivers/NativeGeniSpi/GeniSpi.h',ROOT/'drivers/NativeNovatekTouch/NvtProtocol.c',
