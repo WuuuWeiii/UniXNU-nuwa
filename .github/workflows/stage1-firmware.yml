@@ -159,7 +159,7 @@ jobs:
           name: nuwa-stage1-${{ inputs.target || 'DEBUG' }}-${{ github.run_number }}
           path: |
             UniXNU/out/nuwa/boot/**
-            Mu-Silicium/Build/nuwaPkg/**
+            Mu-Silicium/Build/nuwaPkg/**/FV/*.fd
             UniXNU/out/nuwa/logs/**
           if-no-files-found: warn
           retention-days: 14
