@@ -112,7 +112,9 @@ jobs:
           python3 ./unixnu build kernel -D "$GITHUB_WORKSPACE/device" -j "$JOBS" || true
           tree="$UNIXNU_OUT/nuwa/tree"
           test -d "$tree/refer/corecrypto-2023" || { echo "::error::corecrypto source was not fetched"; exit 1; }
-          # 2) build the archive the gate looks for, exactly as board.toml's archives entry does
+          # 2) build the archive the gate looks for, in the order board.toml's archives use:
+          #    the namespaced variant needs the plain provider built first.
+          ( cd "$tree" && python3 scripts/build-corecrypto-14.py )
           ( cd "$tree" && python3 scripts/build-corecrypto-14.py --namespace )
           archive="$tree/build/corecrypto-2023/libcorecrypto_kernel_noasm-namespaced.a"
           test -f "$archive" || { echo "::error::crypto archive still missing: $archive"; exit 1; }
