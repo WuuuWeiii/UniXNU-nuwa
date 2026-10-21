@@ -31,6 +31,10 @@ on:
         description: 'Also build the payload and boot image (needs one successful stage1 run)'
         type: boolean
         default: false
+      unique_chip_id:
+        description: '8-byte platform seed for the ADT (bring-up test value; use the device seed before touching userdata)'
+        type: string
+        default: '0102030405060708'
       jobs:
         description: 'Parallel jobs for the XNU build'
         type: string
@@ -312,7 +316,8 @@ jobs:
           echo "firmware: $fd"
           echo "kernel  : $kernel"
           python3 ./unixnu defconfig nuwa_defconfig -D "$GITHUB_WORKSPACE/device"
-          python3 ./unixnu build payload -D "$GITHUB_WORKSPACE/device" --kernel "$kernel"
+          python3 ./unixnu build payload -D "$GITHUB_WORKSPACE/device" --kernel "$kernel" \
+            --unique-chip-id "${{ inputs.unique_chip_id }}"
           python3 ./unixnu bootimg -D "$GITHUB_WORKSPACE/device" \
             --uefi "$UNIXNU_UEFI" --fd "$fd" --dtb "$UNIXNU_DTB"
 
