@@ -96,24 +96,55 @@ jobs:
           restore-keys: |
             nuwa-xnu-${{ hashFiles('device/configs/nuwa_defconfig', 'device/board.toml') }}-
 
-      - name: Break the cold-build deadlock (crypto archive)
-        # build-xnu-4k-baseline.sh gates on
-        #   test -f build/corecrypto-2023/libcorecrypto_kernel_noasm-namespaced.a
-        # but that archive is made by a board.toml archive builder, which the driver runs only
-        # AFTER the bootstrap pass. On a clean tree the bootstrap therefore dies here, silently
-        # (set -e, no message), and the kernel step reports only "bash failed (1)".
-        # Run the same builder once first; the driver rebuilds it later, which is harmless.
+      - name: Break the cold-build deadlock (crypto archive + source caches)
+        # Two independent cold-build gates live inside build-xnu-4k-baseline.sh:
+        #
+        # 1. prepare-xnu-source.py asks api.github.com for the DriverKit header list with no
+        #    token. Shared runner IPs share the 60/h anonymous quota, so it dies with
+        #    "HTTP Error 403: rate limit exceeded". The script skips the request when its
+        #    cache file exists, so pre-fill it here with the job token.
+        # 2. test -f build/corecrypto-2023/libcorecrypto_kernel_noasm-namespaced.a runs before
+        #    the board.toml archive builders, so on a clean tree the bootstrap always stops
+        #    there, silently (set -e, no message) — the step only reports "bash failed (1)".
+        #
+        # The first pass below is expected to stop at one of them; it exists to fetch the
+        # Apple sources and assemble the tree.
         working-directory: UniXNU
         env:
           JOBS: ${{ inputs.jobs || '3' }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          set -o pipefail
-          # 1) let the driver fetch the Apple sources and assemble the tree; it stops at the gate
           python3 ./unixnu build kernel -D "$GITHUB_WORKSPACE/device" -j "$JOBS" || true
           tree="$UNIXNU_OUT/nuwa/tree"
           test -d "$tree/refer/corecrypto-2023" || { echo "::error::corecrypto source was not fetched"; exit 1; }
-          # 2) build the archive the gate looks for, in the order board.toml's archives use:
-          #    the namespaced variant needs the plain provider built first.
+
+          tag=$(python3 -c "import tomllib,pathlib;print(next(s for s in tomllib.loads(pathlib.Path('feeds.toml').read_text())['source'] if s['name']=='xnu')['driverkit_tag'])")
+          echo "driverkit tag: $tag"
+          mkdir -p "$tree/.cache/sources"
+          python3 - "$tag" "$tree/.cache/sources" <<'PY'
+          import json, os, sys, urllib.request
+          tag, dest = sys.argv[1], sys.argv[2]
+          version = tag.removeprefix('xnu-')
+          base = 'https://api.github.com/repos/apple-oss-distributions/xnu/contents/iokit/DriverKit'
+
+          def fetch(url):
+              request = urllib.request.Request(url, headers={
+                  'Authorization': 'Bearer ' + os.environ['GITHUB_TOKEN'],
+                  'Accept': 'application/vnd.github+json',
+                  'User-Agent': 'nuwa-ci'})
+              with urllib.request.urlopen(request, timeout=60) as response:
+                  return json.load(response)
+
+          root = fetch(f'{base}?ref={tag}')
+          crypto = fetch(f'{base}/crypto?ref={tag}')
+          with open(os.path.join(dest, f'xnu-driverkit-{version}.json'), 'w') as handle:
+              json.dump(root, handle)
+          with open(os.path.join(dest, f'xnu-driverkit-crypto-{version}.json'), 'w') as handle:
+              json.dump(crypto, handle)
+          print(f'cached {len(root)} DriverKit headers and {len(crypto)} crypto headers')
+          PY
+
+          # The namespaced provider needs the plain one built first, as board.toml orders them.
           ( cd "$tree" && python3 scripts/build-corecrypto-14.py )
           ( cd "$tree" && python3 scripts/build-corecrypto-14.py --namespace )
           archive="$tree/build/corecrypto-2023/libcorecrypto_kernel_noasm-namespaced.a"
