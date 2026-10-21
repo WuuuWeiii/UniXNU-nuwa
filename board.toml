@@ -118,7 +118,8 @@ fd = "Build/nuwaPkg/{target}_CLANGPDB/FV/SILICIUM_UEFI.fd"
 # TODO: uefi-nuwa 自己的预检脚本，照 sheng 的 scripts/check-sheng.py 改（核对固件文件齐全、FD 窗口）
 preflight = ["scripts/check-nuwa.py"]
 submodules = ["Common/Mu", "Common/Mu_OEM_Sample", "Silicium-ACPI", "Silicon/Silicium/OpensslPkg/Library/OpensslLib/openssl", "Binaries"]
-patches = ["Resources/MuPatches/Gic-Spurious.patch"]
+# 实验分支：先不应用 GIC 补丁，对齐官方 qrd8550 镜像的构建条件（它没有这个补丁）
+patches = []
 packages = [
   "{uefi}",
   "{uefi}/Platforms/Xiaomi",
