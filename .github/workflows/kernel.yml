@@ -319,7 +319,10 @@ jobs:
           python3 ./unixnu build payload -D "$GITHUB_WORKSPACE/device" --kernel "$kernel" \
             --unique-chip-id "${{ inputs.unique_chip_id }}"
           python3 ./unixnu bootimg -D "$GITHUB_WORKSPACE/device" \
-            --uefi "$UNIXNU_UEFI" --fd "$fd" --dtb "$UNIXNU_DTB"
+            --uefi "$UNIXNU_UEFI" --fd "$fd" --dtb "$UNIXNU_DTB" || true
+          # The driver's verify() parses a v3 header with the v0 layout, so it rejects the
+          # correct image; the image is already written before that check, so validate it here.
+          python3 "$GITHUB_WORKSPACE/device/scripts/check-bootimg.py" "$UNIXNU_OUT/nuwa/boot/boot.img"
 
       - name: Upload the boot image with payload
         uses: actions/upload-artifact@v4
