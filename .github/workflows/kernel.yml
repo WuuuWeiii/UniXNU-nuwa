@@ -42,8 +42,8 @@ env:
 
 jobs:
   kernel:
-    name: XNU kernel + prelink (macos-14)
-    runs-on: macos-14
+    name: XNU kernel + prelink (macos-15)
+    runs-on: macos-15
     timeout-minutes: 180
     steps:
       - name: Checkout device repository
