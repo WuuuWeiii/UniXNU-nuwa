@@ -89,13 +89,19 @@ jobs:
           path: UniXNU
           submodules: recursive
 
-      - name: Checkout Mu-Silicium
+      - name: Checkout uefi-nuwa
         uses: actions/checkout@v4
         with:
           repository: pubglite55/uefi-nuwa
           path: Mu-Silicium
           fetch-depth: 1
-          submodules: false   # the driver initializes the four submodules board.toml asks for
+          submodules: false   # the driver initializes the submodules board.toml asks for
+
+      - name: Initialize the vendor binary submodule
+        # Binaries/ is Project-Silicium/Device-Binaries and carries nuwa/QcomPkg/... .
+        # Initialized here without --depth because the pinned commit is not a branch tip,
+        # which `submodule update --depth 1` refuses to fetch.
+        run: git -C Mu-Silicium submodule update --init Binaries
 
       - name: Install build dependencies
         run: |
