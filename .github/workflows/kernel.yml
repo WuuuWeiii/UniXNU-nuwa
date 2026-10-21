@@ -120,14 +120,17 @@ jobs:
           tree="$UNIXNU_OUT/nuwa/tree"
           test -d "$tree/refer/corecrypto-2023" || { echo "::error::corecrypto source was not fetched"; exit 1; }
 
-          tag=$(python3 -c "import tomllib,pathlib;print(next(s for s in tomllib.loads(pathlib.Path('feeds.toml').read_text())['source'] if s['name']=='xnu')['driverkit_tag'])")
-          echo "driverkit tag: $tag"
+          tags=$(python3 -c "import tomllib,pathlib;s=tomllib.loads(pathlib.Path('feeds.toml').read_text())['source'];x=next(i for i in s if i['name']=='xnu');print(x['driverkit_tag'], x['trustcache_tag'])")
+          set -- $tags
+          driverkit_tag=$1
+          trustcache_tag=$2
+          echo "driverkit tag: $driverkit_tag   trustcache tag: $trustcache_tag"
           mkdir -p "$tree/.cache/sources"
-          python3 - "$tag" "$tree/.cache/sources" <<'PY'
+          python3 - "$driverkit_tag" "$trustcache_tag" "$tree/.cache/sources" <<'PY'
           import json, os, sys, urllib.request
-          tag, dest = sys.argv[1], sys.argv[2]
-          version = tag.removeprefix('xnu-')
-          base = 'https://api.github.com/repos/apple-oss-distributions/xnu/contents/iokit/DriverKit'
+
+          driverkit_tag, trustcache_tag, dest = sys.argv[1], sys.argv[2], sys.argv[3]
+          base = 'https://api.github.com/repos/apple-oss-distributions/xnu/contents'
 
           def fetch(url):
               request = urllib.request.Request(url, headers={
@@ -137,13 +140,20 @@ jobs:
               with urllib.request.urlopen(request, timeout=60) as response:
                   return json.load(response)
 
-          root = fetch(f'{base}?ref={tag}')
-          crypto = fetch(f'{base}/crypto?ref={tag}')
-          with open(os.path.join(dest, f'xnu-driverkit-{version}.json'), 'w') as handle:
-              json.dump(root, handle)
-          with open(os.path.join(dest, f'xnu-driverkit-crypto-{version}.json'), 'w') as handle:
-              json.dump(crypto, handle)
-          print(f'cached {len(root)} DriverKit headers and {len(crypto)} crypto headers')
+          # prepare-xnu-source.py reads exactly these three files and skips the API when they exist.
+          plan = [
+              (f'{base}/iokit/DriverKit?ref={driverkit_tag}',
+               f'xnu-driverkit-{driverkit_tag.removeprefix("xnu-")}.json'),
+              (f'{base}/iokit/DriverKit/crypto?ref={driverkit_tag}',
+               f'xnu-driverkit-crypto-{driverkit_tag.removeprefix("xnu-")}.json'),
+              (f'{base}/EXTERNAL_HEADERS/TrustCache?ref={trustcache_tag}',
+               f'xnu-trustcache-{trustcache_tag.removeprefix("xnu-")}.json'),
+          ]
+          for url, name in plan:
+              entries = fetch(url)
+              with open(os.path.join(dest, name), 'w') as handle:
+                  json.dump(entries, handle)
+              print(f'cached {len(entries):>3} entries -> {name}')
           PY
 
           # Pass B: with the caches in place this gets past prepare-xnu-source, runs
