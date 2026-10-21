@@ -40,11 +40,15 @@ CONFIG_XNU_ZONE_PGZ_ALIGNMENT_PROBE=n
 CONFIG_XNU_NATIVE_LEGACY_DISPLAY=n
 CONFIG_XNU_NATIVE_ADRENO=n
 
-# kept: these do not pull in any archive and give the boot progress markers
+# kept: these do not pull in any archive and have no gate on the switches above
 CONFIG_XNU_ARM_DT_PLATFORM=y
-CONFIG_XNU_NATIVE_ARCH_TIMER=y
 CONFIG_XNU_NATIVE_PAN=y
-CONFIG_XNU_BOOT_PROGRESS=y
+
+# gated, so off here:
+#   NATIVE_ARCH_TIMER needs ARMCPU ("Architectural timer entry requires the actual ArmCpu
+#   interrupt provider"), BOOT_PROGRESS needs UFS + owner-root audit + Virtio + source-corecrypto.
+CONFIG_XNU_NATIVE_ARCH_TIMER=n
+CONFIG_XNU_BOOT_PROGRESS=n
 
 # the source-provider mode is irrelevant while CORECRYPTO14 is off, but the
 # script validates the string, so keep a legal value
