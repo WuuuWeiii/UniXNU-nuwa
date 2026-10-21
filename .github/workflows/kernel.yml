@@ -96,6 +96,28 @@ jobs:
           restore-keys: |
             nuwa-xnu-${{ hashFiles('device/configs/nuwa_defconfig', 'device/board.toml') }}-
 
+      - name: Break the cold-build deadlock (crypto archive)
+        # build-xnu-4k-baseline.sh gates on
+        #   test -f build/corecrypto-2023/libcorecrypto_kernel_noasm-namespaced.a
+        # but that archive is made by a board.toml archive builder, which the driver runs only
+        # AFTER the bootstrap pass. On a clean tree the bootstrap therefore dies here, silently
+        # (set -e, no message), and the kernel step reports only "bash failed (1)".
+        # Run the same builder once first; the driver rebuilds it later, which is harmless.
+        working-directory: UniXNU
+        env:
+          JOBS: ${{ inputs.jobs || '3' }}
+        run: |
+          set -o pipefail
+          # 1) let the driver fetch the Apple sources and assemble the tree; it stops at the gate
+          python3 ./unixnu build kernel -D "$GITHUB_WORKSPACE/device" -j "$JOBS" || true
+          tree="$UNIXNU_OUT/nuwa/tree"
+          test -d "$tree/refer/corecrypto-2023" || { echo "::error::corecrypto source was not fetched"; exit 1; }
+          # 2) build the archive the gate looks for, exactly as board.toml's archives entry does
+          ( cd "$tree" && python3 scripts/build-corecrypto-14.py --namespace )
+          archive="$tree/build/corecrypto-2023/libcorecrypto_kernel_noasm-namespaced.a"
+          test -f "$archive" || { echo "::error::crypto archive still missing: $archive"; exit 1; }
+          echo "crypto archive ready: $(stat -f%z "$archive") bytes"
+
       - name: Build the kernel and prelink it
         working-directory: UniXNU
         env:
