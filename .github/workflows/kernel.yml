@@ -11,6 +11,12 @@
 
 name: kernel
 
+# macOS arm64 runners queue for minutes, so never let two builds of the same ref pile up:
+# a retried dispatch after a network error would otherwise sit in the queue behind itself.
+concurrency:
+  group: kernel-${{ github.ref }}
+  cancel-in-progress: true
+
 on:
   workflow_dispatch:
     inputs:
