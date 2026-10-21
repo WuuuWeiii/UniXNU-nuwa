@@ -57,8 +57,7 @@ if [ "${XNU_NATIVE_LEGACY_DISPLAY:-0}" != 1 ] && ! grep -q 'nuwa_display_probe_s
 /* nuwa_display_probe_stub: see scripts/build-xnu-4k-baseline.sh. */
 __attribute__((weak)) void native_legacy_display_probe(void)
 {
-	kprintf("nuwa: native_legacy_display_probe: no display provider on this board yet
-");
+	kprintf("nuwa: native_legacy_display_probe: no display provider on this board yet\n");
 }
 NUWA_DISPLAY_STUB
 fi
