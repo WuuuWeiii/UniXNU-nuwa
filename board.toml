@@ -219,7 +219,18 @@ packed_data_ramdisk = true
 ipad_identity = true
 unique_chip_id = "required"          # the platform seed is not stored in any repository
 
-# Image parameters come from the Mu-Silicium device config; [bootimg.image] would override them.
+# Image parameters come from the Mu-Silicium device config; [bootimg.image] overrides them.
+#
+# header_version 0 = sheng 的实测配置（uefi-sheng@sheng 的 Resources/Configs/sheng.toml 明确写 0）；
+# Mu-Silicium 的 nuwa.toml 写的是 1。第一次上机的现象是「fastboot boot 后自动弹回 fastboot」，
+# 即 ABL 没有接受这个镜像 —— v1 比 v0 多 recovery_dtbo 等字段，ABL 若按 v0 解析会错位。
+# 只改这一个变量，其余保持与 sheng 一致，便于对照。
+[bootimg.image]
+header_version = 0
+base = 0
+kernel_offset = 0x8000
+tags_offset = 0x1e00000
+pagesize = 4096
 
 # The stock ABL powers the panel off when the device tree has no splash region, so add it.
 #
