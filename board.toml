@@ -189,25 +189,9 @@ kernel_args = [
   "boot-progress=2",
   "-apfs_shared_datavolume",
   "offline-key-events=1",
-  "native-ufs-root=1",
-  # Required by the build driver: native UFS root boot panics in AMFI with
-  # "No PMGR" unless exactly one sheng-pmgr=2 is present.
-  "sheng-pmgr=2",
   "armcpu-diagnostics=1",
-  "sheng-disable-watchdogd=1",
-  "sheng-disable-jobs=com.apple.identityservicesd,com.apple.locationd,com.apple.CommCenter,com.apple.bluetoothd",
-  "boot-ui-focus3=Preferences",
-  "boot-ui-focus4=SpringBoard",
-  "sheng-aks=1",
-  "sheng-gpu-power=9",
-  "sheng-gpu-metal=1",
-  "sheng-fb-gpu=1",
-  "sheng-banner=0",
-  "sheng-gpu-perf=8",
-  "sheng-gpu-addon=1",
   "-no_slto_panic",
   "ml-timeout-lock-panic-scale=40",
-  "sheng-data-persist=2",
 ]
 
 [payload.adt]
