@@ -167,7 +167,7 @@ def code(data,info):
     sec=next(s for g in info['segments'] for s in g['sections'] if s['name']=='__text');return data[sec['fileoff']:sec['fileoff']+sec['size']]
 require(code(raw,image)==code(late.read_bytes(),macho(late.read_bytes())),'Only owned initializer section registration changes')
 r=json.loads((ROOT/'build/xnu/ios-obj/DEVELOPMENT_ARM64_BCM2837/iokit/DEVELOPMENT/IOPlatformExpert.cpo.json').read_text().strip().rstrip(','))
-cmd=[];args=r['arguments'];i=0;source=ROOT/'kits/sheng/LegacyDisplayProbe.cpp'
+cmd=[];args=r['arguments'];i=0;source=ROOT/'kits/nuwa/LegacyDisplayProbe.cpp'
 while i<len(args):
     value=args[i]
     if value==r['file']:cmd.append(str(source))
@@ -178,15 +178,15 @@ while i<len(args):
 cmd+=['-Wall','-Wextra','-Werror','-Wno-unused-parameter','-Wno-unknown-warning-option','-Wno-c99-designator','-Wno-reorder-init-list',
       '-Wno-deprecated-enum-enum-conversion','-I',str(ROOT/'.cache/xnu-work/osfmk')]
 run(cmd,cwd=r['directory'])
-hid_source=ROOT/'kits/sheng/HidInputProbe.cpp'
+hid_source=ROOT/'kits/nuwa/HidInputProbe.cpp'
 hid_obj=OUT/'HidInputProbe.o'
 hid_cmd=[str(hid_source) if str(arg)==str(source) else str(hid_obj) if str(arg)==str(OUT/'LegacyDisplayProbe.o') else arg for arg in cmd]
 run(hid_cmd,cwd=r['directory'])
-keystore_source=ROOT/'kits/sheng/KeyStoreProbe.cpp'
+keystore_source=ROOT/'kits/nuwa/KeyStoreProbe.cpp'
 keystore_obj=OUT/'KeyStoreProbe.o'
 keystore_cmd=[str(keystore_source) if str(arg)==str(source) else str(keystore_obj) if str(arg)==str(OUT/'LegacyDisplayProbe.o') else arg for arg in cmd]
 run(keystore_cmd,cwd=r['directory'])
-process_source=ROOT/'kits/sheng/BootProcessProbe.c'
+process_source=ROOT/'kits/nuwa/BootProcessProbe.c'
 process_obj=OUT/'BootProcessProbe.o'
 pr=json.loads((ROOT/'build/xnu/ios-obj/DEVELOPMENT_ARM64_BCM2837/osfmk/DEVELOPMENT/startup.o.json').read_text().strip().rstrip(','))
 process_cmd=[];pa=pr['arguments'];j=0
@@ -201,25 +201,25 @@ while j<len(pa):
     j+=1
 process_cmd+=['-Wall','-Wextra','-Werror','-mgeneral-regs-only','-I',str(ROOT/'.cache/xnu-work/osfmk')]
 run(process_cmd,cwd=pr['directory'])
-trace_source=ROOT/'kits/sheng/BootUiTraceProbe.c'
+trace_source=ROOT/'kits/nuwa/BootUiTraceProbe.c'
 trace_obj=OUT/'BootUiTraceProbe.o'
 trace_cmd=[str(trace_source) if arg==str(process_source) else str(trace_obj) if arg==str(process_obj) else arg for arg in process_cmd]
 run(trace_cmd,cwd=pr['directory'])
 # nuwa first-console: NATIVE_ADRENO / BOOT_PROGRESS / owner-data are off, so BootLog.c's
 # boot_progress_* / native_adreno_* / native_data_persist_* / native_gpu_* imports would be
 # undefined. Omit the UFS diagnostic log writer and supply the weak display stubs instead.
-stub_source=ROOT/'kits/sheng/LegacyDisplayStubs.c'
+stub_source=ROOT/'kits/nuwa/LegacyDisplayStubs.c'
 stub_obj=OUT/'LegacyDisplayStubs.o'
 run([str(stub_source) if arg==str(process_source) else str(stub_obj) if arg==str(process_obj) else arg for arg in process_cmd],cwd=pr['directory'])
-reset_source=ROOT/'kits/sheng/BootReset.c'
+reset_source=ROOT/'kits/nuwa/BootReset.c'
 reset_obj=OUT/'BootReset.o'
-run([str(reset_source) if arg==str(process_source) else str(reset_obj) if arg==str(process_obj) else arg for arg in process_cmd]+['-I',str(ROOT/'kits/sheng')],cwd=pr['directory'])
+run([str(reset_source) if arg==str(process_source) else str(reset_obj) if arg==str(process_obj) else arg for arg in process_cmd]+['-I',str(ROOT/'kits/nuwa')],cwd=pr['directory'])
 # Default-off touch bring-up: C++ board probe plus the generic GENI SPI and Novatek protocol/touch libraries, compiled with the
 # kernel C flags, and the firmware object generated from the copy kept outside Git.
-cmd+=['-I',str(ROOT/'kits/sheng'),'-I',str(ROOT/'drivers/NativeGeniSpi'),'-I',str(ROOT/'drivers/NativeNovatekTouch')]
+cmd+=['-I',str(ROOT/'kits/nuwa'),'-I',str(ROOT/'drivers/NativeGeniSpi'),'-I',str(ROOT/'drivers/NativeNovatekTouch')]
 touch_dir=OUT/'touch';touch_dir.mkdir(exist_ok=True)
-touch_cpp=ROOT/'kits/sheng/TouchProbe.cpp';touch_cpp_obj=touch_dir/'TouchProbe.o'
-cpufreq_cpp=ROOT/'kits/sheng/CpuFreqProbe.cpp';cpufreq_obj=touch_dir/'CpuFreqProbe.o'
+touch_cpp=ROOT/'kits/nuwa/TouchProbe.cpp';touch_cpp_obj=touch_dir/'TouchProbe.o'
+cpufreq_cpp=ROOT/'kits/nuwa/CpuFreqProbe.cpp';cpufreq_obj=touch_dir/'CpuFreqProbe.o'
 # nuwa first-console: NATIVE_ADRENO is off, so GpuPowerProbe's Adreno and
 # GPU-addon imports would be undefined. It is a default-off probe; omit it
 # from this archive until the Adreno kit (and its vendor firmware) is linked.
@@ -246,9 +246,9 @@ require(code((keyevents/'NativeKeyStoreEvents.o').read_bytes(),macho((keyevents/
 run(['xcrun','ar','rcs',archive,late,OUT/'original-bindings.o',OUT/'LegacyDisplayProbe.o',hid_obj,keystore_obj,process_obj,trace_obj,reset_obj,stub_obj,
      hid_dir/'NativeHidInput.late.o',hid_dir/'hid-original-bindings.o',keyevents_late,touch_cpp_obj,cpufreq_obj,*touch_objs])
 sources=[ROOT/'drivers/NativeMobileDisplay/NativeLegacyDisplay.cpp',
-         ROOT/'drivers/NativeMobileDisplay/NativeLegacyRequest.h',source,hid_source,keystore_source,process_source,trace_source,reset_source,stub_source,ROOT/'kits/sheng/BootResetCore.h',ROOT/'kits/sheng/BootUiTraceCore.h',ROOT/'kits/sheng/BootUiTraceDetails.h',
+         ROOT/'drivers/NativeMobileDisplay/NativeLegacyRequest.h',source,hid_source,keystore_source,process_source,trace_source,reset_source,stub_source,ROOT/'kits/nuwa/BootResetCore.h',ROOT/'kits/nuwa/BootUiTraceCore.h',ROOT/'kits/nuwa/BootUiTraceDetails.h',
          ROOT/'drivers/NativeHidInput/NativeHidInput.cpp',ROOT/'scripts/build-native-hid-input.py',
-         ROOT/'drivers/NativeKeyStoreEvents/NativeKeyStoreEvents.cpp',touch_cpp,cpufreq_cpp,ROOT/'kits/sheng/TouchBoard.h',
+         ROOT/'drivers/NativeKeyStoreEvents/NativeKeyStoreEvents.cpp',touch_cpp,cpufreq_cpp,ROOT/'kits/nuwa/TouchBoard.h',
          ROOT/'drivers/NativeGeniSpi/GeniSpi.c',ROOT/'drivers/NativeGeniSpi/GeniSpi.h',ROOT/'drivers/NativeNovatekTouch/NvtProtocol.c',
          ROOT/'drivers/NativeNovatekTouch/NvtProtocol.h',ROOT/'drivers/NativeNovatekTouch/NvtTouchCore.c',ROOT/'drivers/NativeNovatekTouch/NvtTouchCore.h']
 print(run(['python3',ROOT/'scripts/build-arm-driver.py','NativeGOPPresenter'],text=True),end='')
