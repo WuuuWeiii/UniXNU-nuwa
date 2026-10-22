@@ -153,10 +153,11 @@ loader = "firmware"
 title = "nuwa first boot: source 4K XNU to console"
 dram_size = "0x80000000"             # first-boot window as sheng; TODO 上机后用 SMEM RAM 表实测值替换
 skip_setup_tool = "scripts/seed-data-skip-setup.py"   # used by --skip-setup
-# panic_screen 补丁 (patch-xnu-entry-probe.py) 依赖内核的精确布局。sheng 的地址已不适用：
-# 我们的 kernel.macho 里 _panic = 0xFFFFFFF00799AD50（sheng 是 0xFFFFFFF00BF69B04）。脚本在
-# 内核带符号表时会自行取 _panic/_vinfo；先打开让 CI 验证地址能否对上，失败再按实际符号重算。
-panic_screen = true
+# panic_screen 补丁 (patch-xnu-entry-probe.py) 的地址是按 sheng 内核硬编码的
+# （ENTRY_VA 0xFFFFFFF00B9D0488 / PANIC_VA 0xFFFFFFF00BF69B04），我们的 kernel.macho
+# 里 _panic = 0xFFFFFFF00799AD50，补丁会拒绝。且当前是"卡死"不是 panic，先关掉；
+# 等内核能走到 PE 之后，再按实际符号重算地址打开。
+panic_screen = false
 # The original static/System trust caches, and the owner trust bundle built around them.
 # Same IPSW as sheng, so the same hashes are correct here.
 trust_cache_sha256 = [
