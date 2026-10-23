@@ -44,9 +44,13 @@ MMU_ENABLE_VA = 0xFFFFFFF0073F3350   # msr SCTLR_EL1, x0
 AFTER_MMU_VA = 0xFFFFFFF0073F3354    # isb, first instruction after the MMU is on
 PANIC_VA = 0xFFFFFFF00799AD50      # _panic
 VINFO_VA = 0xFFFFFFF007AEA970      # _vinfo
-PANIC_CAVE_END = 0xFFFFFFF0073EE001
+# The panic screen needs 0x9fd bytes; the padding right after the entry holds only 0x229, so the
+# whole probe block lives in the 0x3ad0-byte zero run at the end of __TEXT_EXEC instead. That run
+# is part of the loaded kernel image and executable, and it is still within the +/-128 MiB branch
+# range of the entry, so stage 1/2 (MMU off) reach it with the same `b`.
+PANIC_CAVE_END = 0xFFFFFFF007A50000
 CAVE_SIZE = 0x60
-CAVES = {1: 0xFFFFFFF0073EDD14, 2: 0xFFFFFFF0073EDD74, 3: 0xFFFFFFF0073EDDD4, 4: 0xFFFFFFF0073EDE34}
+CAVES = {1: 0xFFFFFFF007A4C530, 2: 0xFFFFFFF007A4C590, 3: 0xFFFFFFF007A4C5F0, 4: 0xFFFFFFF007A4C650}
 TIMEBASE = 19200000
 
 PAINT = """
