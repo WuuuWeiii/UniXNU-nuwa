@@ -30,12 +30,13 @@ jobs:
           SIZE='${{ inputs.size_mib }}'
           LABEL='${{ inputs.label }}'
           IMG="$PWD/root.img"
-          rm -f "$IMG"
+          DMG="$PWD/root.dmg"          # hdiutil appends .dmg unless the name already has it
+          rm -f "$IMG" "$DMG"
           mkdir -p mnt
           # hdiutil builds the filesystem inside the image; newfs_hfs insists on a device node and
           # reads a bare name as /dev/<name>, so it cannot be pointed at a plain file here.
-          hdiutil create -size "${SIZE}m" -fs "Case-sensitive HFS+" -volname "$LABEL" -ov "$IMG"
-          hdiutil attach -nobrowse -mountpoint mnt "$IMG"
+          hdiutil create -size "${SIZE}m" -fs "Case-sensitive HFS+" -volname "$LABEL" -ov "$DMG"
+          hdiutil attach -nobrowse -mountpoint mnt "$DMG"
           mkdir -p mnt/System/Library/CoreServices mnt/System/Library/Extensions \
                    mnt/System/Library/PrivateFrameworks mnt/private/var/db mnt/private/etc \
                    mnt/usr/lib mnt/usr/bin mnt/bin mnt/sbin mnt/Developer
@@ -53,6 +54,9 @@ jobs:
           echo "unixnu nuwa bring-up root" > mnt/etc-unixnu-root.txt
           sync
           hdiutil detach mnt
+          # The UDRW image is the filesystem's raw blocks plus a 512-byte trailer, so flashing it at
+          # offset 0 of a partition lays the volume down where bsd_init expects it.
+          mv "$DMG" "$IMG"
           echo "--- image ---"
           ls -l "$IMG"
           # HFSX signature lives at offset 1024 ('H+' with the case-sensitive 'HX' variant).
