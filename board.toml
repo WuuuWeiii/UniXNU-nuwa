@@ -66,8 +66,15 @@ archives = [
 tool = "kits/NativePrelink/emit_prelink.py"
 kernel = "build/xnu/ios-obj/DEVELOPMENT_ARM64_BCM2837/mach.development.bcm2837.unstripped.noctf"
 kernelcache_sha256 = "2ec297bac95bcba01046fd0148e97e7e5885c05a6c18827f39f534ba375c1221"
-slide = "-0x1000000"
-early_security_init = "com.apple.driver.AppleMobileFileIntegrity=0xfffffff005ab4ae0"
+# The slide is donor specific: it has to move the donor's __PRELINK_TEXT/__PLK_* window clear of
+# the native segments. -0x1000000 is the iPad7,1 value; with the iPhone10,3 kernelcache it makes the
+# rebased components collide with native __PRELINK_TEXT. -0x4000000 is the first value that the
+# prelink planner accepts for this donor (verified locally with kits/NativePrelink over a range of
+# 8 MiB steps).
+slide = "-0x4000000"
+# TODO: the iPad7,1 initializer address is meaningless for this donor. Left unset until the AMFI
+# early-security entry point of the iPhone10,3 kernelcache is identified.
+# early_security_init = "com.apple.driver.AppleMobileFileIntegrity=0xfffffff005ab4ae0"
 roots = [
   "com.apple.AppleFSCompression.AppleFSCompressionTypeZlib",
   "com.apple.driver.AppleARMPlatform",
