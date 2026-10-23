@@ -333,10 +333,18 @@ def rebase(kernel, data):
 
 
 def file_offset(va):
+    # A VA can sit inside more than one segment's declared range (the prelink placeholders
+    # overlap the real text). Only a range backed by file data counts, and the smallest such
+    # segment is the specific one: picking the first match resolved 0x7a4c5d0 to a placeholder
+    # and made the cave look non-empty (build 39932187646).
+    best = None
     for vmaddr, vmsize, fileoff, filesize in SEGMENTS:
-        if vmaddr <= va < vmaddr + min(vmsize, filesize):
-            return fileoff + (va - vmaddr)
-    raise SystemExit(f'{va:#x} is not in a file-backed segment of this kernel')
+        if vmaddr <= va < vmaddr + filesize:
+            if best is None or filesize < best[3]:
+                best = (vmaddr, vmsize, fileoff, filesize)
+    if best is None:
+        raise SystemExit(f'{va:#x} is not in a file-backed segment of this kernel')
+    return best[2] + (va - best[0])
 
 
 def branch(from_va, to_va):
@@ -388,7 +396,7 @@ def main():
     global CAVES, PANIC_CAVE_END
     need = CAVE_SIZE * 4 + 0x1000
     zero = bytes(need)
-    best = (0, 0)
+    candidates = []
     for vmaddr, fileoff, filesize in EXEC_SEGMENTS:
         blob = bytes(data[fileoff:fileoff + filesize])
         index = blob.find(zero)
@@ -399,14 +407,22 @@ def main():
             start -= 1
         while end < len(blob) and blob[end] == 0:
             end += 1
-        if end - start > best[1] and abs((vmaddr + start) - ENTRY_VA) < 0x6000000:
-            best = (vmaddr + start, end - start)
-    if best[1] < need:
-        raise SystemExit(f'no {need:#x}-byte zero run within branch range of the entry (best {best[1]:#x})')
-    CAVES = {stage: best[0] + (stage - 1) * CAVE_SIZE for stage in (1, 2, 3, 4)}
-    PANIC_CAVE_END = best[0] + best[1]
-    if any(data[file_offset(va):file_offset(va) + CAVE_SIZE] for va in CAVES.values()):
-        raise SystemExit(f'Padding at {best[0]:#x} is not empty')
+        va = vmaddr + start
+        if abs(va - ENTRY_VA) < 0x6000000:
+            candidates.append((end - start, va))
+    candidates.sort(reverse=True)
+    chosen = None
+    for length, va in candidates:
+        # Verify through file_offset, the same mapping the patcher writes with: a candidate that
+        # only looks empty in raw file coordinates is useless.
+        if all(not any(data[file_offset(va + stage * CAVE_SIZE):file_offset(va + stage * CAVE_SIZE) + CAVE_SIZE])
+               for stage in range(4)):
+            chosen = (va, length)
+            break
+    if chosen is None:
+        raise SystemExit(f'no {need:#x}-byte zero run within branch range of the entry')
+    CAVES = {stage: chosen[0] + (stage - 1) * CAVE_SIZE for stage in (1, 2, 3, 4)}
+    PANIC_CAVE_END = chosen[0] + chosen[1]
     # (site, cave stage, symbols the cave is linked with)
     sites = [(ENTRY_VA, 1, {'target': START_FIRST_CPU}),
              (MMU_ENABLE_VA, 2, {'target': MMU_ENABLE_VA + 4})]
