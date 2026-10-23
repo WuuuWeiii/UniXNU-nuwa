@@ -63,7 +63,11 @@ archives = [
 ]
 
 [kernel.prelink]
-tool = "kits/NativePrelink/emit_prelink.py"
+# The nuwa package carries its own copy of the prelink emitter (kits/nuwa == package/): the upstream
+# one refuses a whole candidate when a donor kext keeps constant tables inside __TEXT_EXEC that
+# decode as an impossible ADRP, which is what com.apple.kec.Libm of the iPhone10,3 kernelcache does.
+# The vendored copy records those sites in the report instead of aborting.
+tool = "kits/nuwa/emit_prelink.py"
 kernel = "build/xnu/ios-obj/DEVELOPMENT_ARM64_BCM2837/mach.development.bcm2837.unstripped.noctf"
 kernelcache_sha256 = "2ec297bac95bcba01046fd0148e97e7e5885c05a6c18827f39f534ba375c1221"
 # The slide is donor specific: it has to move the donor's __PRELINK_TEXT/__PLK_* window clear of
