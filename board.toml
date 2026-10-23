@@ -197,6 +197,11 @@ kernel_args = [
   # PMGR integration: it looks the service up during early init and the unchanged
   # target kernel has no ApplePMGR of its own. One copy is enough (the build driver
   # enforces exactly one when native-ufs-root=1).
+  # BSD init now panics at IOKitBSDInit.cpp:984 with "Failed to mount root device":
+  # the kernel itself is up, there is simply no block device behind it. NativeUfs
+  # publishes the UFS LUN 0 as the root candidate; the build driver requires exactly
+  # one sheng-pmgr=2 alongside it (present above).
+  "native-ufs-root=1",
   "sheng-pmgr=2",
   "armcpu-diagnostics=1",
   "-no_slto_panic",
