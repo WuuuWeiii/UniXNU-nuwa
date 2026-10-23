@@ -202,6 +202,10 @@ kernel_args = [
   # publishes the UFS LUN 0 as the root candidate; the build driver requires exactly
   # one sheng-pmgr=2 alongside it (present above).
   "native-ufs-root=1",
+  # Read-only diagnostic pass: parse LUN 0's GPT, find "userdata", read its first
+  # block, then panic with the GPT facts and the manifest status. The panic screen
+  # draws that text, which is how we read the driver's decision without a console.
+  "native-ufs-probe=10",
   "sheng-pmgr=2",
   "armcpu-diagnostics=1",
   "-no_slto_panic",
