@@ -193,6 +193,11 @@ kernel_args = [
   "boot-progress=2",
   "-apfs_shared_datavolume",
   "offline-key-events=1",
+  # AMFI panics with "AMFI: No PMGR?" at ConfigurationSettings.cpp:235 without the
+  # PMGR integration: it looks the service up during early init and the unchanged
+  # target kernel has no ApplePMGR of its own. One copy is enough (the build driver
+  # enforces exactly one when native-ufs-root=1).
+  "sheng-pmgr=2",
   "armcpu-diagnostics=1",
   "-no_slto_panic",
   "ml-timeout-lock-panic-scale=40",
