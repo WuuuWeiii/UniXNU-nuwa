@@ -1,0 +1,65 @@
+name: root image
+
+# A minimal case-sensitive HFS+ (HFSX) volume: what bsd_init needs before it can mount a root.
+# It is deliberately empty — the first goal is to see the kernel mount something, not to boot a
+# userland. Real userlands come later from an ios-sweet style base root.
+on:
+  workflow_dispatch:
+    inputs:
+      size_mib:
+        description: Volume size in MiB
+        default: '512'
+        type: string
+      label:
+        description: Volume label
+        default: System
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  hfsx:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build the HFSX volume
+        run: |
+          set -euo pipefail
+          SIZE='${{ inputs.size_mib }}'
+          LABEL='${{ inputs.label }}'
+          rm -f root.img
+          # newfs_hfs takes the size from the regular file it is pointed at.
+          dd if=/dev/zero of=root.img bs=1m count="$SIZE"
+          newfs_hfs -s -v "$LABEL" -b 4096 root.img
+          mkdir -p mnt
+          hdiutil attach -imagekey diskimage-class=CRawDiskImage -nobrowse -mountpoint mnt root.img
+          mkdir -p mnt/System/Library/CoreServices mnt/System/Library/Extensions \
+                   mnt/System/Library/PrivateFrameworks mnt/private/var/db mnt/private/etc \
+                   mnt/usr/lib mnt/usr/bin mnt/bin mnt/sbin mnt/Developer
+          cat > mnt/System/Library/CoreServices/SystemVersion.plist <<'PLIST'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>ProductBuildVersion</key><string>20H392</string>
+            <key>ProductName</key><string>iPhone OS</string>
+            <key>ProductVersion</key><string>16.7.16</string>
+          </dict>
+          </plist>
+          PLIST
+          echo "unixnu nuwa bring-up root" > mnt/etc-unixnu-root.txt
+          sync
+          hdiutil detach mnt
+          echo "--- image ---"
+          ls -l root.img
+          # HFSX magic lives at 1024: 'H+' with the case-sensitive signature 'HX'
+          dd if=root.img bs=1 skip=1024 count=8 2>/dev/null | xxd
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: nuwa-root-hfsx
+          path: root.img
+          compression-level: 0
+          if-no-files-found: error
