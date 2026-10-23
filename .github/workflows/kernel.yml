@@ -273,9 +273,14 @@ jobs:
           submodules: false
 
       - name: Install payload/bootimg dependencies
+        timeout-minutes: 20
         run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
+          # The runner's default mirror occasionally stalls for tens of minutes.
+          # Bound every fetch so a bad mirror fails fast instead of hanging the job.
+          sudo apt-get -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 \
+                       -o Acquire::Retries=3 update
+          sudo apt-get -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 \
+                       -o Acquire::Retries=3 install -y --no-install-recommends \
             build-essential clang lld llvm device-tree-compiler mtools python3 git
 
       - name: Find the most recent successful stage1 run
