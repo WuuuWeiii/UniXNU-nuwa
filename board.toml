@@ -153,15 +153,15 @@ loader = "firmware"
 title = "nuwa first boot: source 4K XNU to console"
 dram_size = "0x80000000"             # first-boot window as sheng; TODO 上机后用 SMEM RAM 表实测值替换
 skip_setup_tool = "scripts/seed-data-skip-setup.py"   # used by --skip-setup
-# panic_screen 补丁 (patch-xnu-entry-probe.py) 的地址是按 sheng 内核硬编码的
-# （ENTRY_VA 0xFFFFFFF00B9D0488 / PANIC_VA 0xFFFFFFF00BF69B04），我们的 kernel.macho
-# 里 _panic = 0xFFFFFFF00799AD50，补丁会拒绝。且当前是"卡死"不是 panic，先关掉；
-# 等内核能走到 PE 之后，再按实际符号重算地址打开。
-panic_screen = false
+# 探针已经给出结论（2026-10-23 15:39 真机）：绿条=DarwinBoot、蓝条=内核入口、品红条=MMU 使能前，
+# 之后 5 秒复位 —— 说明内核执行到 MMU 之后才停住。现在把"静默"变成"文字"：panic() 的格式串
+# 直接画在帧缓冲上。地址已按我们内核的符号重算（_panic 0xFFFFFFF00799AD50 / _vinfo 0xFFFFFFF007AEA970）。
+panic_screen = true
 # Entry probe (stage bars in the frame buffer). stage 1 = kernel entry with the MMU off (blue band),
 # stage 2 = just before the MMU is on (magenta band); with a reset delay, stage 3 resets via PSCI
 # that many seconds after the MMU is on. Set to 0/absent to skip the probe entirely.
-entry_probe_reset_delay = 5
+# 这一轮不开复位：panic 屏画完会停住，复位会把文字冲掉。
+# entry_probe_reset_delay = 5
 # The original static/System trust caches, and the owner trust bundle built around them.
 # Same IPSW as sheng, so the same hashes are correct here.
 trust_cache_sha256 = [
