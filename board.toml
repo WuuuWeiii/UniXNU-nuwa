@@ -213,7 +213,10 @@ owned_memory_size = "0x130000000"
 root_match_volume_uuid = "04769D26-2CA0-4825-B443-E2E5F88300F2"
 cpu_regs = "0,0x100,0x200,0x300,0x400,0x500,0x600,0x700"
 packed_data_ramdisk = true
-ipad_identity = true
+# The donor kernelcache is iPhone10,3 (d22ap) iOS 16.7.16, so the ADT has to claim that device:
+# MobileGestalt reads hw.product/hw.target from the root model/target-type, and the iPhone X
+# artwork (phone idiom, @3x, 2436) is what a phone-form-factor boot expects.
+iphone_identity = true
 unique_chip_id = "required"          # the platform seed is not stored in any repository
 
 # Image parameters come from the Mu-Silicium device config; [bootimg.image] overrides them.

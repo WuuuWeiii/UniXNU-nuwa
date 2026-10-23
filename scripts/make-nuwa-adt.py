@@ -84,6 +84,9 @@ def main():
     parser.add_argument('--ipad-identity', action='store_true',
                         help='/product and /buttons describe an iPad-class device without a Home button (MobileGestalt reads these from the tree); '
                              'values follow the unchanged iPad7,1 tree, the panel geometry and button set are nuwa\'s')
+    parser.add_argument('--iphone-identity', action='store_true',
+                        help='/product and /buttons describe the iPhone X (iPhone10,3 / D22) the donor kernelcache belongs to; '
+                             'same security tuples as the iPad identity, phone artwork instead of pad')
     parser.add_argument('--cpu-regs', default='0',
                         help='Comma-separated CPU MPIDR affinity values (the /cpus reg of each core); the first is the running boot CPU. '
                              'SM8550 numbers its cores 0x000..0x700 in Affinity1 (sm8550.dtsi). More than one adds /psci')
@@ -94,6 +97,17 @@ def main():
                         help='/chosen/memory-map RAMDisk placeholder; the loader fills in the real range for a scratch Data seed')
     parser.add_argument('--trust-cache', action='store_true', help='Zeroed TrustCache sidecar handoff placeholder')
     args = parser.parse_args()
+    if args.ipad_identity and args.iphone_identity:
+        parser.error('--ipad-identity and --iphone-identity are mutually exclusive')
+    # The identity the tree claims: 'iPad7,1' or 'iPhone10,3'. None keeps the plain bring-up name.
+    identity = 'iPad7,1' if args.ipad_identity else 'iPhone10,3' if args.iphone_identity else None
+    IDENTITY = {
+        # model, target-type, product-name, artwork idiom/subtype/scale, compat fallback
+        'iPad7,1': (b'iPad7,1\0', b'J120\0', b'iPad Pro (12.9-inch) (2nd generation)\0',
+                    b'pad\0', 2732, 2, b'iPad6,7\0'),
+        'iPhone10,3': (b'iPhone10,3\0', b'D22\0', b'iPhone X\0',
+                       b'phone\0', 2436, 3, b'iPhone10,6\0'),
+    }
     if (args.unique_chip_id is None) != (args.chip_id is None):
         parser.error('--unique-chip-id and --chip-id must be supplied together')
     if args.unique_chip_id is not None and not (0 < args.unique_chip_id < 1 << 64 and 0 < args.chip_id < 1 << 32):
@@ -118,8 +132,8 @@ def main():
     tree = node('device-tree', [
         # hw.product/hw.machine/hw.target come from the root 'model'/'target-type' (IODTPlatformExpert);
         # libMobileGestalt prefix-matches hw.product against iPhone/iPod/iPad, so the iPad identity needs both here.
-        ('model', b'iPad7,1\0' if args.ipad_identity else b'nuwa-first-boot\0'),
-        *([('target-type', b'J120\0')] if args.ipad_identity else []),
+        ('model', IDENTITY[identity][0] if identity else b'nuwa-first-boot\0'),
+        *([('target-type', IDENTITY[identity][1])] if identity else []),
         # Root compatible strings of the compiled board DT (xiaomi,nuwa / qcom,sm8550).
         ('compatible', b'xiaomi,nuwa\0qcom,sm8550\0'),
         ('#address-cells', struct.pack('<I', 2)),
@@ -138,7 +152,7 @@ def main():
                         # baseband). Values established on hardware by github.com/dipa-studio/ios-sweet (tools/mkadt.py).
                         *([('certificate-production-status', struct.pack('<I', 0)), ('effective-production-status-ap', struct.pack('<I', 0)),
                            ('certificate-security-mode', struct.pack('<I', 1)), ('effective-security-mode-sep', struct.pack('<I', 1))]
-                          if args.ipad_identity else []),
+                          if identity else []),
                         # This property describes the actual volatile Data RAM disk.
                         *([('ephemeral-storage', struct.pack('<I', 1))] if (args.data_ramdisk or args.packed_data_ramdisk) else []),
                         *( [('darwinboot-memory-size', struct.pack('<Q', args.owned_memory_size))]
@@ -171,16 +185,16 @@ def main():
         *( [node('buttons', [('compatible', b'buttons\0'), ('device_type', b'buttons\0'),
                              # No 'menu' entry: nuwa has no Home button. 2 = the non-mechanical answer BSPlatform passes through.
                              ('button-names', b'hold\0voldown\0volup\0'),
-                             ('home-button-type', struct.pack('<I', 2))])] if args.ipad_identity else [] ),
-        node('product', [('product-name', b'iPad Pro (12.9-inch) (2nd generation)\0' if args.ipad_identity else b'Xiaomi 13 Pro\0'),
+                             ('home-button-type', struct.pack('<I', 2))])] if identity else [] ),
+        node('product', [('product-name', IDENTITY[identity][2] if identity else b'Xiaomi 13 Pro\0'),
                          ('model', b'xiaomi,nuwa\0'),
-                         *( [('product-description', b'iPad Pro (12.9-inch) (2nd generation)\0'),
-                             ('artwork-device-idiom', b'pad\0'),
-                             ('artwork-device-subtype', struct.pack('<I', 2732)),
-                             ('artwork-scale-factor', struct.pack('<I', 2)),
+                         *( [('product-description', IDENTITY[identity][2]),
+                             ('artwork-device-idiom', IDENTITY[identity][3]),
+                             ('artwork-device-subtype', struct.pack('<I', IDENTITY[identity][4])),
+                             ('artwork-scale-factor', struct.pack('<I', IDENTITY[identity][5])),
                              ('artwork-display-gamut', b'P3\0'),
-                             ('compatible-device-fallback', b'iPad6,7\0'),
-                             ('thin-bezel', struct.pack('<I', 1))] if args.ipad_identity else [] )]),
+                             ('compatible-device-fallback', IDENTITY[identity][6]),
+                             ('thin-bezel', struct.pack('<I', 1))] if identity else [] )]),
         node('arm-io', [('device_type', b'arm-io\0'),
                         ('#address-cells', struct.pack('<I', 2)),
                         ('#size-cells', struct.pack('<I', 2)),
