@@ -92,7 +92,12 @@ def main():
     parser.add_argument('--packed-data-ramdisk', action='store_true', help='Hand off validated DBRDISK1 bytes to the native sparse block driver, without a dense memdev alias')
     parser.add_argument('--data-ramdisk', action='store_true',
                         help='/chosen/memory-map RAMDisk placeholder; the loader fills in the real range for a scratch Data seed')
+    parser.add_argument('--persistent-data', action='store_true',
+                        help='The Data disk keeps its writes across boots (sheng-data-persist): no ephemeral-storage, so first-boot data migration runs')
     parser.add_argument('--trust-cache', action='store_true', help='Zeroed TrustCache sidecar handoff placeholder')
+    parser.add_argument('--gpu-addon', action='store_true', help='Zeroed GpuAddon sidecar handoff placeholder (the loader fills in kernel.macho.gpuaddon)')
+    parser.add_argument('--text-fixup', action='append', default=[],
+                        help='/chosen/text-fixups entry <file name>,<file offset>,<original>,<replacement> for the kernel\'s signed-text fixups')
     args = parser.parse_args()
     if (args.unique_chip_id is None) != (args.chip_id is None):
         parser.error('--unique-chip-id and --chip-id must be supplied together')
@@ -139,8 +144,10 @@ def main():
                         *([('certificate-production-status', struct.pack('<I', 0)), ('effective-production-status-ap', struct.pack('<I', 0)),
                            ('certificate-security-mode', struct.pack('<I', 1)), ('effective-security-mode-sep', struct.pack('<I', 1))]
                           if args.ipad_identity else []),
-                        # This property describes the actual volatile Data RAM disk.
-                        *([('ephemeral-storage', struct.pack('<I', 1))] if (args.data_ramdisk or args.packed_data_ramdisk) else []),
+                        # This property describes the actual volatile Data RAM disk. A persistent one is not ephemeral: with the property
+                        # datamigrator skips every migration (os_variant_uses_ephemeral_storage), so the staged system apps never install.
+                        *([('ephemeral-storage', struct.pack('<I', 1))]
+                          if (args.data_ramdisk or args.packed_data_ramdisk) and not args.persistent_data else []),
                         *( [('darwinboot-memory-size', struct.pack('<Q', args.owned_memory_size))]
                            if args.owned_memory_size else [] ),
                         ('dram-base', struct.pack('<Q', DRAM_BASE)),
@@ -155,16 +162,21 @@ def main():
                         # Strict policy for the original AMFI: platform code only. This keeps AMFI
                         # enforcing; it does not relax it.
                         ('amfi-only-platform-code', struct.pack('<I', 1)),
+                        *([('text-fixups', b''.join(f.encode() + b'\0' for f in args.text_fixup))] if args.text_fixup else []),
                         *empty_nvram_proxy()],
              [node('memory-map', ([("PackedRAMDisk" if args.packed_data_ramdisk else "RAMDisk", bytes(16))] if (args.data_ramdisk or args.packed_data_ramdisk) else []) +
-                                 ([('TrustCache', bytes(16))] if args.trust_cache else [])),
+                                 ([('TrustCache', bytes(16))] if args.trust_cache else []) +
+                                 ([('GpuAddon', bytes(16))] if args.gpu_addon else [])),
               # Read by the original AppleImage4 at start-up; present and empty here.
               node('manifest-properties')]),
         node('cpus', children=cpus),
         *([node('psci', [('compatible', b'arm,psci-1.0\0'), ('method', args.psci_method.encode() + b'\0')])] if len(cpus) > 1 else []),
         # Suspend/resume is not implemented for this board. Use the original
         # root-domain policy input rather than allowing the CPU to park forever.
-        node('defaults', [('sleep-disabled', struct.pack('<I', 1))]),
+        # kern.maxvnodes: this kernel is built with CONFIG_VNODES=1024 (xsmall), so desiredvnodes clips to 1024 and the desktop's
+        # ~1950 live vnodes made vnode jetsam kill idle daemons about once a second (int-102 log). XNU reads the value from /defaults
+        # before it clips; this is its own formula, memory/64K + 1024, for the iPad7,1's 4 GiB.
+        node('defaults', [('sleep-disabled', struct.pack('<I', 1)), ('kern.maxvnodes', struct.pack('<I', 66560))]),
         node('options', []),
         # The original AppleImage4 panics without a product node. Name and model are the
         # board DT's own strings.

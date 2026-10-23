@@ -19,6 +19,7 @@ extern int proc_selfpid(void);
 #include <kern/misc_protos.h>
 #include <kern/boot_progress.h>
 #include <arm/cpu_data_internal.h>
+#include <kern/processor.h>
 #include <arm/thread.h>
 #include <console/video_console.h>
 #include "BootProgressCore.h"
@@ -27,6 +28,59 @@ extern int proc_selfpid(void);
 #include "BootProgressLifecycle.h"
 static struct bp_exits exit_records,exit_snapshot;
 static unsigned exit_lock,exit_dropped;
+// Every process name that was exec'd, with its starts, its exits and the second of its first start. The exit records keep only failed exits,
+// so a service that starts, works and ends quietly (or never starts) was invisible; this says which of the system's helpers ran at all (int-201:
+// the wallpaper's extension, Safari's and the widgets' processes).
+static unsigned seconds(void);
+enum {BpCensus = 448};   // every process name of a boot (int-213: 389 names, 56 kept)
+static struct {char name[24];unsigned short started,exited,first;} census[BpCensus];
+static unsigned census_count,census_lock,census_dropped;
+static void census_note(const char *name,int exited) {
+  if(!name || !name[0])return;
+  if(__atomic_exchange_n(&census_lock,1,__ATOMIC_ACQUIRE)) {__atomic_fetch_add(&census_dropped,1,__ATOMIC_RELAXED);return;}
+  unsigned i=0;
+  while(i<census_count && strncmp(census[i].name,name,sizeof census[i].name-1))++i;
+  if(i==census_count) {
+    if(census_count>=BpCensus) {__atomic_fetch_add(&census_dropped,1,__ATOMIC_RELAXED);__atomic_store_n(&census_lock,0,__ATOMIC_RELEASE);return;}
+    strlcpy(census[i].name,name,sizeof census[i].name);census[i].first=(unsigned short)seconds();++census_count;
+  }
+  if(exited) {if(census[i].exited<65535)++census[i].exited;} else if(census[i].started<65535)++census[i].started;
+  __atomic_store_n(&census_lock,0,__ATOMIC_RELEASE);
+}
+
+// Every xpcproxy that ended without exec'ing its job (a job launch that failed in its spawn setup): the job's label from argv, how often, and the
+// last exit status and exit-reason namespace/code (int-214: 219 such exits in 4 minutes, launchd the busiest process; the wallpaper's and the
+// widgets' extensions are launched this way).
+extern int proc_selfexecutableargs(uint8_t *buf,size_t *buflen);
+enum {BpXpcFails = 32};
+static struct {char label[64];unsigned short count;int status;unsigned ns;uint64_t code;} xpc_fails[BpXpcFails];
+static unsigned xpc_fail_count,xpc_fail_lock,xpc_fail_dropped;
+static uint8_t xpc_args[512];
+static void xpc_fail_note(int status,unsigned ns,uint64_t code) {
+  char label[64]="?";
+  if(!__atomic_exchange_n(&xpc_fail_lock,1,__ATOMIC_ACQUIRE)) {
+    // argc, then the exec path and argv strings: the label is the last of the first three strings (path, "xpcproxy", label).
+    size_t length=sizeof xpc_args-1;
+    if(!proc_selfexecutableargs(xpc_args,&length) && length>4) {
+      xpc_args[length<sizeof xpc_args?length:sizeof xpc_args-1]=0;
+      unsigned found=0;
+      for(size_t at=4;at<length && found<3;) {
+        if(!xpc_args[at]){++at;continue;}
+        const char *text=(const char *)xpc_args+at;
+        if(++found>1)strlcpy(label,text,sizeof label);
+        at+=strnlen(text,length-at)+1;
+      }
+    }
+    unsigned i=0;
+    while(i<xpc_fail_count && strcmp(xpc_fails[i].label,label))++i;
+    if(i==xpc_fail_count && xpc_fail_count<BpXpcFails) {strlcpy(xpc_fails[i].label,label,sizeof xpc_fails[i].label);++xpc_fail_count;}
+    if(i<xpc_fail_count) {
+      if(xpc_fails[i].count<65535)++xpc_fails[i].count;
+      xpc_fails[i].status=status;xpc_fails[i].ns=ns;xpc_fails[i].code=code;
+    } else ++xpc_fail_dropped;
+    __atomic_store_n(&xpc_fail_lock,0,__ATOMIC_RELEASE);
+  } else __atomic_fetch_add(&xpc_fail_dropped,1,__ATOMIC_RELAXED);
+}
 
 static struct bp_display display;
 static struct bp_core state, render_snapshot;
@@ -80,6 +134,7 @@ extern volatile uint64_t native_ram_block_bytes,native_ram_block_resident_bytes 
 extern unsigned int vm_page_free_min,vm_page_free_reserved,vm_page_free_target;
 extern void boot_progress_exit_fault(int,unsigned,char *,unsigned long) __attribute__((weak_import));
 extern void boot_progress_exit_reason(int,unsigned,char *,unsigned long) __attribute__((weak_import));
+extern char boot_progress_throw_text[330] __attribute__((weak_import));
 extern void boot_ui_trace_snapshot(unsigned) __attribute__((weak_import));
 extern char boot_ui_trace_rows[14][120] __attribute__((weak_import));
 extern char boot_ui_trace_label[120] __attribute__((weak_import));
@@ -572,6 +627,7 @@ void boot_progress_stage(const char *text) {
 void boot_progress_process_stage(int pid,const char *name,const char *text) {
   if(!enabled || !take())return;
   char stamped[BP_COLS];unsigned now=seconds();
+  if(!strncmp(text,"exec process signature",22))census_note(name,0);
   snprintf(stamped,sizeof(stamped),"target pid=%d %.24s %.70s",pid,name,text);
   bp_stage(&state,stamped,now);
   if(!started && !state.frozen)draw(now);
@@ -579,6 +635,8 @@ void boot_progress_process_stage(int pid,const char *name,const char *text) {
 }
 void boot_progress_exit(int pid,const char *name,int status,unsigned ns,uint64_t code) {
   if(!enabled)return;
+  census_note(name,1);
+  if(name && !strcmp(name,"xpcproxy") && pid==proc_selfpid())xpc_fail_note(status,ns,code);
   if(__atomic_exchange_n(&exit_lock,1,__ATOMIC_ACQUIRE)) {
     __atomic_fetch_add(&exit_dropped,1,__ATOMIC_RELAXED);return;
   }
@@ -586,8 +644,45 @@ void boot_progress_exit(int pid,const char *name,int status,unsigned ns,uint64_t
   unsigned signal=(unsigned)status&127;
   if(signal>=3 && signal<=12 && signal!=9 && boot_progress_exit_fault)
     boot_progress_exit_fault(pid,signal,exit_records.crash[(exit_records.crashes-1)%3],400);
-  if(signal==6 && boot_progress_exit_reason)boot_progress_exit_reason(pid,signal,exit_records.reason,sizeof(exit_records.reason));
+  if(signal==6 && boot_progress_exit_reason) {
+    if(&boot_progress_throw_text)boot_progress_throw_text[0]=0;
+    boot_progress_exit_reason(pid,signal,exit_records.reason,sizeof(exit_records.reason));
+    if(&boot_progress_throw_text && boot_progress_throw_text[0])strlcpy(exit_records.thrown,boot_progress_throw_text,sizeof(exit_records.thrown));
+  }
   __atomic_store_n(&exit_lock,0,__ATOMIC_RELEASE);
+}
+// The log's [spawn] section (BootLog.c): the throw site of the last uncaught exception, then the census as name starts/exits@second of the first
+// start, three to a row.
+size_t boot_progress_spawn_rows(char *out,size_t cap) {
+  size_t at=0;
+#define SP_ROW(...) do{int w=snprintf(out+at,cap>at?cap-at:0,__VA_ARGS__);if(w>0)at+=(size_t)w;if(at>=cap)at=cap?cap-1:0;}while(0)
+  if(cap<256)return 0;
+  if(!__atomic_exchange_n(&exit_lock,1,__ATOMIC_ACQUIRE)) {
+    if(exit_records.thrown[0])SP_ROW("THROW %.330s\n",exit_records.thrown);
+    // The latest abort's reason text from the dying process's heap (the uncaught-exception line), which only the banner showed before.
+    if(exit_records.reason[0])SP_ROW("REASON %.330s\n",exit_records.reason);
+    // The crash records (fault registers, shared-cache slide, image base and backtrace of the signalled process), newest first: the log has no
+    // other place for them while the banner is off, and the slide is what turns the THROW addresses into symbols.
+    for(unsigned i=0;i<3 && i<exit_records.crashes;++i)SP_ROW("CRASH %.400s\n",exit_records.crash[(exit_records.crashes-1-i)%3]);
+    __atomic_store_n(&exit_lock,0,__ATOMIC_RELEASE);
+  }
+  if(!__atomic_exchange_n(&xpc_fail_lock,1,__ATOMIC_ACQUIRE)) {
+    if(xpc_fail_count)SP_ROW("xpcproxy exits: labels=%u dropped=%u\n",xpc_fail_count,xpc_fail_dropped);
+    for(unsigned i=0;i<xpc_fail_count;++i)
+      SP_ROW("XPC %.63s n=%u st=%x ns=%u code=%llx\n",xpc_fails[i].label,xpc_fails[i].count,(unsigned)xpc_fails[i].status,xpc_fails[i].ns,
+             (unsigned long long)xpc_fails[i].code);
+    __atomic_store_n(&xpc_fail_lock,0,__ATOMIC_RELEASE);
+  }
+  if(!__atomic_exchange_n(&census_lock,1,__ATOMIC_ACQUIRE)) {
+    SP_ROW("names=%u dropped=%u\n",census_count,census_dropped);
+    for(unsigned i=0;i<census_count;i+=3) {
+      for(unsigned j=i;j<i+3 && j<census_count;++j)SP_ROW("%s%.23s %u/%u@%u",j==i?"":"  ",census[j].name,census[j].started,census[j].exited,census[j].first);
+      SP_ROW("\n");
+    }
+    __atomic_store_n(&census_lock,0,__ATOMIC_RELEASE);
+  }
+#undef SP_ROW
+  return at;
 }
 // Sampling profile (int-146): every interrupt that lands in a process records that process's interrupted PC, user (EL0) or kernel, in a
 // ring of the last 64K samples; boot_progress_profile_rows ranks them per process for the UFS log. One packed word per sample:
@@ -595,6 +690,8 @@ void boot_progress_exit(int pid,const char *name,int status,unsigned ns,uint64_t
 enum {BpProfSamples = 65536};
 static uint64_t bp_prof[BpProfSamples];
 static uint32_t bp_prof_head;
+// Interrupted samples per core and process (pid % 61), since boot: shows which cores the busy processes run on.
+static uint32_t bp_cpu_cnt[8][64];
 // Kernel samples also keep the interrupted frame chain (int-147): int-146's hottest kernel PC was the instruction after DAIFClr in
 // ml_set_interrupts_enabled, i.e. timer interrupts held pending by an interrupts-masked section, which only its callers can name.
 // Per sample: pc and three return addresses, each as its low 32 bits (kernel text lies in one 4 GiB window); 0 = frame not inside the
@@ -625,6 +722,7 @@ void boot_progress_irq(uint64_t pc,uint64_t psr,uint64_t sp) {
         const uint64_t kernel=(psr&0x1f)!=0;
         const uint32_t at=__atomic_fetch_add(&bp_prof_head,1,__ATOMIC_RELAXED);
         bp_prof[at%BpProfSamples]=((uint64_t)(pid&0xffff)<<48)|(kernel<<47)|(pc&((1ull<<47)-1));
+        bp_cpu_cnt[getCpuDatap()->cpu_number&7][pid%61]++;
         if(kernel)bp_kernel_chain(pc);
       }
     }
@@ -1081,6 +1179,16 @@ static void monitor(void *arg, wait_result_t result) {
     thread_block(THREAD_CONTINUE_NULL);
   }
 }
+// The boot core is a little A510, and the scheduler, which sees equal cores, hands it work first (lowest idle core number). A
+// lowest-priority thread bound to it keeps it busy so work goes to the big cores while any is idle, and still gives way to real work
+// when none is (sheng-cpu0-park=0 turns it off). Compositing frames ran 40 fps without it and 55 fps with it.
+static void cpu0_park(void *arg, wait_result_t result) {
+  (void)arg;(void)result;
+  thread_set_thread_name(current_thread(),"cpu0_park");
+  thread_bind(master_processor);
+  thread_block(THREAD_CONTINUE_NULL);
+  for (;;) __asm__ volatile("yield");
+}
 void boot_progress_start(void) {
   if (!enabled || started) return;
   started=1;thread_t thread;
@@ -1097,6 +1205,8 @@ void boot_progress_start(void) {
     else __atomic_store_n(&process_worker_status,3,__ATOMIC_RELEASE);
   }
   if(kernel_thread_start_priority(touch_monitor,0,BASEPRI_KERNEL,&thread)==KERN_SUCCESS)thread_deallocate(thread);
+  {unsigned park=1;PE_parse_boot_argn("sheng-cpu0-park",&park,sizeof(park));
+   if(park==1 && kernel_thread_start_priority(cpu0_park,0,1,&thread)==KERN_SUCCESS)thread_deallocate(thread);}
   boot_progress_stage(state.continuous ?
     "monitor continuous: deadlines warn only; OS remains running" :
     "monitor armed: idle 30s / total 120s; IRQs required for hard stalls");
@@ -1125,6 +1235,12 @@ size_t boot_progress_profile_rows(char *out,size_t cap) {
   BP_ROW("PS samples=%u kept=%lu |",head,(unsigned long)n);
   for(size_t k=0;k<8 && k<procs;k++)BP_ROW(" p%llu:%llu",bp_prof_rank[procs-1-k]&0xffff,bp_prof_rank[procs-1-k]>>16);
   BP_ROW("\n");
+  for(size_t k=0;k<3 && k<procs;k++) {
+    const uint64_t pid=bp_prof_rank[procs-1-k]&0xffff;
+    BP_ROW("CPU p%llu",pid);
+    for(unsigned c=0;c<8;c++)BP_ROW(" c%u:%u",c,bp_cpu_cnt[c][pid%61]);
+    BP_ROW("\n");
+  }
   uint64_t top[2]={procs?bp_prof_rank[procs-1]&0xffff:0,procs>1?bp_prof_rank[procs-2]&0xffff:0};
   for(unsigned t=0;t<2 && t<procs;t++) {
     const uint64_t pid=top[t];
@@ -1183,3 +1299,9 @@ size_t boot_progress_profile_rows(char *out,size_t cap) {
 #undef BP_ROW
   return at;
 }
+
+// BootLog.c reaches the diagnostic file export (BootDiagExport.c) only through weak references, which do not pull an archive member into
+// the link; this table does.
+extern uint64_t boot_diag_scan(uint64_t);
+extern int boot_diag_stream(int (*)(const void *, uint32_t, void *), void *);
+__attribute__((used)) void *const boot_diag_export_anchor[] = {(void *)boot_diag_scan, (void *)boot_diag_stream};
