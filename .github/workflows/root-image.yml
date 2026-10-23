@@ -30,11 +30,13 @@ jobs:
           SIZE='${{ inputs.size_mib }}'
           LABEL='${{ inputs.label }}'
           rm -f root.img
-          # newfs_hfs takes the size from the regular file it is pointed at.
-          dd if=/dev/zero of=root.img bs=1m count="$SIZE"
-          newfs_hfs -s -v "$LABEL" -b 4096 root.img
+          # newfs_hfs takes the size from the regular file it is pointed at, and treats a bare
+          # name as /dev/<name>, so hand it an absolute path.
+          IMG="$PWD/root.img"
+          dd if=/dev/zero of="$IMG" bs=1m count="$SIZE"
+          newfs_hfs -s -v "$LABEL" -b 4096 "$IMG"
           mkdir -p mnt
-          hdiutil attach -imagekey diskimage-class=CRawDiskImage -nobrowse -mountpoint mnt root.img
+          hdiutil attach -imagekey diskimage-class=CRawDiskImage -nobrowse -mountpoint mnt "$IMG"
           mkdir -p mnt/System/Library/CoreServices mnt/System/Library/Extensions \
                    mnt/System/Library/PrivateFrameworks mnt/private/var/db mnt/private/etc \
                    mnt/usr/lib mnt/usr/bin mnt/bin mnt/sbin mnt/Developer
@@ -53,9 +55,9 @@ jobs:
           sync
           hdiutil detach mnt
           echo "--- image ---"
-          ls -l root.img
-          # HFSX magic lives at 1024: 'H+' with the case-sensitive signature 'HX'
-          dd if=root.img bs=1 skip=1024 count=8 2>/dev/null | xxd
+          ls -l "$IMG"
+          # HFSX signature lives at offset 1024 ('H+' with the case-sensitive 'HX' variant).
+          dd if="$IMG" bs=1 skip=1024 count=8 2>/dev/null | od -A d -t x1
 
       - uses: actions/upload-artifact@v4
         with:
