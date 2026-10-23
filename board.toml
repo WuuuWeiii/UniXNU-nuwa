@@ -158,6 +158,10 @@ skip_setup_tool = "scripts/seed-data-skip-setup.py"   # used by --skip-setup
 # 里 _panic = 0xFFFFFFF00799AD50，补丁会拒绝。且当前是"卡死"不是 panic，先关掉；
 # 等内核能走到 PE 之后，再按实际符号重算地址打开。
 panic_screen = false
+# Entry probe (stage bars in the frame buffer). stage 1 = kernel entry with the MMU off (blue band),
+# stage 2 = just before the MMU is on (magenta band); with a reset delay, stage 3 resets via PSCI
+# that many seconds after the MMU is on. Set to 0/absent to skip the probe entirely.
+entry_probe_reset_delay = 5
 # The original static/System trust caches, and the owner trust bundle built around them.
 # Same IPSW as sheng, so the same hashes are correct here.
 trust_cache_sha256 = [
