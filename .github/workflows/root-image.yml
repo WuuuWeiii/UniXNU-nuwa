@@ -29,14 +29,13 @@ jobs:
           set -euo pipefail
           SIZE='${{ inputs.size_mib }}'
           LABEL='${{ inputs.label }}'
-          rm -f root.img
-          # newfs_hfs takes the size from the regular file it is pointed at, and treats a bare
-          # name as /dev/<name>, so hand it an absolute path.
           IMG="$PWD/root.img"
-          dd if=/dev/zero of="$IMG" bs=1m count="$SIZE"
-          newfs_hfs -s -v "$LABEL" -b 4096 "$IMG"
+          rm -f "$IMG"
           mkdir -p mnt
-          hdiutil attach -imagekey diskimage-class=CRawDiskImage -nobrowse -mountpoint mnt "$IMG"
+          # hdiutil builds the filesystem inside the image; newfs_hfs insists on a device node and
+          # reads a bare name as /dev/<name>, so it cannot be pointed at a plain file here.
+          hdiutil create -size "${SIZE}m" -fs "Case-sensitive HFS+" -volname "$LABEL" -ov "$IMG"
+          hdiutil attach -nobrowse -mountpoint mnt "$IMG"
           mkdir -p mnt/System/Library/CoreServices mnt/System/Library/Extensions \
                    mnt/System/Library/PrivateFrameworks mnt/private/var/db mnt/private/etc \
                    mnt/usr/lib mnt/usr/bin mnt/bin mnt/sbin mnt/Developer
