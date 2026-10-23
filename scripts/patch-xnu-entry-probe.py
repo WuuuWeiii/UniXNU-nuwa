@@ -253,6 +253,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 SEGMENTS = []   # (vmaddr, vmsize, fileoff, filesize) of the kernel being patched
+EXEC_SEGMENTS = []   # (vmaddr, fileoff, filesize) of the executable ones
 
 
 def load_segments(data):
@@ -262,12 +263,16 @@ def load_segments(data):
         raise SystemExit('Not a 64-bit Mach-O')
     offset = 32
     SEGMENTS.clear()
+    EXEC_SEGMENTS.clear()
     for _ in range(ncmds):
         cmd, size = struct.unpack_from('<II', data, offset)
         if cmd == 0x19:
             _, vmaddr, vmsize, fileoff, filesize = struct.unpack_from('<16sQQQQ', data, offset + 8)
+            name = data[offset + 8:offset + 24].rstrip(b'\0').decode('ascii', 'replace')
             if filesize:
                 SEGMENTS.append((vmaddr, vmsize, fileoff, filesize))
+                if name.startswith('__TEXT'):
+                    EXEC_SEGMENTS.append((vmaddr, fileoff, filesize))
         offset += size
 
 
@@ -377,10 +382,31 @@ def main():
     for va, value in expected.items():
         if word(va) != value:
             raise SystemExit(f'{va:#x} holds {word(va):#010x}, expected {value:#010x}: not the kernel these probes are for')
-    for va in CAVES.values():
-        if any(data[file_offset(va):file_offset(va) + CAVE_SIZE]):
-            raise SystemExit(f'Padding at {va:#x} is not empty')
-
+    # Locate the probe block instead of pinning it: any kit change resizes the kernel and moves the
+    # zero run we used last time (2026-10-23: the NativeUfs SMMU fix made 0x7a4c530 non-empty). Take
+    # the largest zero run in an executable segment that also fits four stage caves plus the screen.
+    global CAVES, PANIC_CAVE_END
+    need = CAVE_SIZE * 4 + 0x1000
+    zero = bytes(need)
+    best = (0, 0)
+    for vmaddr, fileoff, filesize in EXEC_SEGMENTS:
+        blob = bytes(data[fileoff:fileoff + filesize])
+        index = blob.find(zero)
+        if index < 0:
+            continue
+        start, end = index, index + need
+        while start > 0 and blob[start - 1] == 0:
+            start -= 1
+        while end < len(blob) and blob[end] == 0:
+            end += 1
+        if end - start > best[1] and abs((vmaddr + start) - ENTRY_VA) < 0x6000000:
+            best = (vmaddr + start, end - start)
+    if best[1] < need:
+        raise SystemExit(f'no {need:#x}-byte zero run within branch range of the entry (best {best[1]:#x})')
+    CAVES = {stage: best[0] + (stage - 1) * CAVE_SIZE for stage in (1, 2, 3, 4)}
+    PANIC_CAVE_END = best[0] + best[1]
+    if any(data[file_offset(va):file_offset(va) + CAVE_SIZE] for va in CAVES.values()):
+        raise SystemExit(f'Padding at {best[0]:#x} is not empty')
     # (site, cave stage, symbols the cave is linked with)
     sites = [(ENTRY_VA, 1, {'target': START_FIRST_CPU}),
              (MMU_ENABLE_VA, 2, {'target': MMU_ENABLE_VA + 4})]
