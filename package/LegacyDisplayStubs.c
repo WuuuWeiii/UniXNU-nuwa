@@ -50,6 +50,29 @@ sheng_gpu_power_probe (void)
 }
 
 /*
+ * The UniXNU-sheng merge taught LegacyDisplayProbe to call the Wi-Fi, button
+ * and backlight probes as well. None of the three is compiled in the nuwa
+ * first-console configuration (no QCA6490, no sheng panel backlight, no
+ * Novatek button panel), so weak no-op definitions keep the kernel linkable.
+ * A configuration that builds the real probes supplies strong definitions
+ * and the linker discards these.
+ */
+__attribute__((weak)) void
+sheng_wifi_probe (void)
+{
+}
+
+__attribute__((weak)) void
+sheng_buttons_probe (void)
+{
+}
+
+__attribute__((weak)) void
+sheng_backlight_probe (void)
+{
+}
+
+/*
  * NativeLegacyDisplay always references the GPU hand-off hooks, even when
  * CONFIG_XNU_NATIVE_ADRENO is off and GpuPowerProbe.cpp is not compiled.
  * The weak definitions keep the display-only kernel linkable; the Adreno
