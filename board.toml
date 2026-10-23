@@ -13,16 +13,17 @@ description = "Xiaomi 13 Pro"
 # 等 nuwa 自己的 kit 真正分歧后，再改成 "nuwa" 并同步所有 scripts 里的 kits/sheng 引用。
 kit = "nuwa"
 
-# The target OS image: the unchanged iPad7,1 iPadOS 17.7.11 restore image, identical to sheng and vermeer
-# (the whole qualified chain - prelink roots, trust caches, kernel args - targets this build).
+# The target OS image: iPhone X (d22ap) iOS 16.7.16, the phone-form-factor donor. Values were read out of
+# BuildManifest.plist of this very IPSW: the d22ap Erase identity carries ApChipID 0x8015 (t8015 / A11) and
+# ApBoardID 0x06; the DeviceTree self-identifies as target-type D22, model iPhone10,3, platform arm-io,t8015.
 [ipsw]
-url = "https://updates.cdn-apple.com/2025SpringFCS/fullrestores/122-77166/DCA6CFE8-90E9-4B92-880D-3DE171798E40/iPad_Pro_HFR_17.7.11_21H461_Restore.ipsw"
+url = "https://updates.cdn-apple.com/2025FallFCS/fullrestores/122-77006/1158E502-D76D-4226-AA06-ED5E30CD1111/iPhone10,3,iPhone10,6_16.7.16_20H392_Restore.ipsw"
 product = "iPhone10,3"
 version = "16.7.16"
 build = "20H392"
 device_class = "d22ap"
-chip_id = 0x8010
-board_id = 0x0C
+chip_id = 0x8015
+board_id = 0x06
 fetch = ["KernelCache", "DeviceTree", "StaticTrustCache", "RestoreTrustCache"]   # the small components
 
 # The raw image for the userdata partition: the OS and SystemOS disk images of the IPSW behind a manifest.
