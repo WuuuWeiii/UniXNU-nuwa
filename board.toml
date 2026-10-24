@@ -207,6 +207,10 @@ kernel_args = [
   # bring-up build publish exactly the windows the manifest describes, and turns each refusal
   # into a panic the screen can show. It is inert in a NATIVE_VERIFIED_BLOCK build.
   "native-ufs-root-unverified=1",
+  # Read the root manifest from a spare partition instead of userdata, so root bring-up does
+  # not have to erase Android. Xiaomi's "cust" (2 GiB, operator customisation) boots without
+  # being read and is restored by a full ROM flash; 512 MiB of it is plenty for the manifest.
+  "native-ufs-root-partition=cust",
   "sheng-pmgr=2",
   "armcpu-diagnostics=1",
   "-no_slto_panic",
