@@ -233,6 +233,14 @@ kernel_args = [
   # Apple volume does NOT self-seal against this check -- the seal needs Image4 policy this
   # device cannot satisfy.
   "rd=md0x",
+  # Diagnostic AMFI enforcement off. Measured 2026-10-24: with rd=md0x the kernel exec'd
+  # /sbin/launchd and then SIGKILLed it with "unexpected SIGKILL of launchd with reason --
+  # namespace 9 code 0x8 description none", which this repository's own check-air-nir-native.py:46
+  # classifies as an EXEC security-policy refusal when the process has no trust of its own.
+  # The payload carries no trust cache at all (kernel.yml never passes --trust-cache), so the
+  # refusal is expected; this switch answers "is that the only thing in the way" in one round.
+  # Diagnostic only: it changes the security policy.
+  "amfi_get_out_of_my_way=1",
   "native-ufs-root=1",
   # The build carries no signed policy (the --unverified transport), so the publication phase
   # refuses every window unless this opt-in is present.
