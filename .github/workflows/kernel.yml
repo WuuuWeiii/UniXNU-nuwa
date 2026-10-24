@@ -219,6 +219,16 @@ jobs:
         working-directory: UniXNU
         run: python3 ./unixnu status || true
 
+      - name: Upload the kernel log when the build fails
+        # The driver writes the compiler output to logs/kernel.log and only prints a summary, so a
+        # failed compile is otherwise invisible from the run log.
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: kernel-log
+          path: ${{ env.UNIXNU_OUT }}/nuwa/logs/kernel.log
+          if-no-files-found: ignore
+
       - name: Build the ramdisk root (Case-sensitive HFS+)
         # The root of this bring-up is a RAM disk, not the UFS volume. IOFindBSDRoot's rd=md0
         # branch reads /chosen/memory-map RAMDisk, calls mdevadd() and never touches IOKit

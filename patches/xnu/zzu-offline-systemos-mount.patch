@@ -1,8 +1,8 @@
 diff --git a/bsd/kern/kern_exec.c b/bsd/kern/kern_exec.c
-index a5ff474..0cfd2a1 100644
+index a5ff474..edef204 100644
 --- a/bsd/kern/kern_exec.c
 +++ b/bsd/kern/kern_exec.c
-@@ -7258,10 +7258,85 @@ done:
+@@ -7258,10 +7258,84 @@ done:
  }
  #endif
  
@@ -14,7 +14,6 @@ index a5ff474..0cfd2a1 100644
 + * by the offline-systemos-mount boot argument, run once, and it never touches the root mount.
 + */
 +extern int IOFillMediaDevicePath(const char *uuid, char *path, size_t size);
-+extern int mount(proc_t, struct mount_args *, int32_t *);
 +
 +user_addr_t offline_init_envp = USER_ADDR_NULL;
 +static boolean_t offline_systemos_done = FALSE;
@@ -88,7 +87,7 @@ index a5ff474..0cfd2a1 100644
  	int error;
  	struct execve_args init_exec_args;
  	user_addr_t argv0 = USER_ADDR_NULL, argv1 = USER_ADDR_NULL;
-@@ -7331,7 +7406,7 @@ load_init_program_at_path(proc_t p, user_addr_t scratch_addr, const char* path,
+@@ -7331,7 +7405,7 @@ load_init_program_at_path(proc_t p, user_addr_t scratch_addr, const char* path,
  	 */
  	init_exec_args.fname = argv0;
  	init_exec_args.argp = scratch_addr;
@@ -98,10 +97,10 @@ index a5ff474..0cfd2a1 100644
  	/*
  	 * So that init task is set with uid,gid 0 token
 diff --git a/iokit/bsddev/IOKitBSDInit.cpp b/iokit/bsddev/IOKitBSDInit.cpp
-index 92142f7..61a1d1a 100644
+index 92142f7..00aeba8 100644
 --- a/iokit/bsddev/IOKitBSDInit.cpp
 +++ b/iokit/bsddev/IOKitBSDInit.cpp
-@@ -1633,3 +1633,40 @@ IOVnodeGetEntitlement(vnode_t vnode, int64_t off, const char *entitlement)
+@@ -1633,3 +1633,41 @@ IOVnodeGetEntitlement(vnode_t vnode, int64_t off, const char *entitlement)
  	}
  	return value;
  }
@@ -136,7 +135,8 @@ index 92142f7..61a1d1a 100644
 +	}
 +	service = IOService::waitForService(matching, &timeout);
 +	if (service && (name = OSDynamicCast(OSString, service->getProperty(kIOBSDNameKey)))) {
-+		snprintf(path, size, "/dev/%s", name->getCStringNoCopy());
++		strlcpy(path, "/dev/", size);
++		strlcat(path, name->getCStringNoCopy(), size);
 +		found = 1;
 +	}
 +	matching->release();
