@@ -219,6 +219,23 @@ jobs:
         working-directory: UniXNU
         run: python3 ./unixnu status || true
 
+      - name: Report the patch state of the xnu tree
+        if: always()
+        working-directory: UniXNU
+        run: |
+          tree="$UNIXNU_OUT/nuwa/tree"
+          echo "=== tree: $(test -d "$tree" && echo present || echo MISSING) ==="
+          echo "=== patch script inside the tree ==="
+          sha256sum "$tree/scripts/build-xnu-4k-baseline.sh" 2>/dev/null || echo "script missing"
+          grep -c "checkout -- \." "$tree/scripts/build-xnu-4k-baseline.sh" 2>/dev/null || echo "reset-line-missing"
+          echo "=== device patches visible to the tree ==="
+          ls "$tree/patches/xnu" 2>/dev/null | grep -E "zzu|systemos" || echo "zzu-or-systemos-missing"
+          echo "=== work tree state ==="
+          git -C "$tree/.cache/xnu-work" status --porcelain 2>/dev/null | head -10 || echo "no-git"
+          echo "=== applied markers ==="
+          grep -c "native_owner_data_prepare" "$tree/.cache/xnu-work/bsd/kern/kern_exec.c" 2>/dev/null || echo "systemos-not-applied"
+          grep -c "IOFillMediaDevicePath" "$tree/.cache/xnu-work/iokit/bsddev/IOKitBSDInit.cpp" 2>/dev/null || echo "zzu-not-applied"
+
       - name: Upload the kernel log when the build fails
         # The driver writes the compiler output to logs/kernel.log and only prints a summary, so a
         # failed compile is otherwise invisible from the run log.
