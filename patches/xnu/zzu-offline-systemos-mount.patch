@@ -1,8 +1,8 @@
 diff --git a/bsd/kern/kern_exec.c b/bsd/kern/kern_exec.c
-index a5ff474..e1bdf7d 100644
+index a5ff474..e516560 100644
 --- a/bsd/kern/kern_exec.c
 +++ b/bsd/kern/kern_exec.c
-@@ -7258,10 +7258,110 @@ done:
+@@ -7258,10 +7258,105 @@ done:
  }
  #endif
  
@@ -13,20 +13,15 @@ index a5ff474..e1bdf7d 100644
 + * and hand launchd a DYLD_SHARED_CACHE_DIR that points into it. Development instrument: gated
 + * by the offline-systemos-mount boot argument, run once, and it never touches the root mount.
 + */
-+extern int IOFillMediaDevicePath(const char *uuid, char *path, size_t size);
-+
-+user_addr_t offline_init_envp = USER_ADDR_NULL;
-+static boolean_t offline_systemos_done = FALSE;
-+
 +extern int IOFillMediaDevice(const char *uuid, dev_t *device, char *path, size_t size);
 +extern int bdevvp(dev_t dev, vnode_t *vpp);
 +extern struct vfstable *vfsconf;
-+extern int vfs_rootmountalloc(const char *fstypename, const char *devname, mount_t *mpp);
-+extern void mount_list_add(mount_t mp);
-+extern void vfs_init_io_attributes(vnode_t vp, mount_t mp);
++extern errno_t vfs_rootmountalloc(const char *fstypename, const char *devname, mount_t *mpp);
++extern int mount_list_add(mount_t mp);
++extern errno_t vfs_init_io_attributes(vnode_t devvp, mount_t mp);
 +extern void name_cache_lock(void);
 +extern void name_cache_unlock(void);
-+extern int mount_generation;
++extern uint32_t mount_generation;
 +
 +user_addr_t offline_init_envp = USER_ADDR_NULL;
 +static boolean_t offline_systemos_done = FALSE;
@@ -59,9 +54,9 @@ index a5ff474..e1bdf7d 100644
 +	}
 +	/*
 +	 * There is no devfs node for this media: IOKit starts before devfs is mounted, so
-+	 * IOMediaBSDClient never made one. bdevvp() builds the block device vnode straight
++	 * IOMediaBSDClient never created one. bdevvp() builds the block device vnode straight
 +	 * from the dev_t, exactly as vfs_mountroot() does for the root, and APFS reads the
-+	 * volume through that vnode instead of a spec path.
++	 * volume through that vnode instead of through a spec path.
 +	 */
 +	if ((error = bdevvp(device, &devvp)) != 0) {
 +		panic("offline SystemOS: bdevvp(%s) failed: %d", device_path, error);
@@ -78,7 +73,7 @@ index a5ff474..e1bdf7d 100644
 +	if ((error = VFS_MOUNT(mp, devvp, 0, vfs_context_kernel())) != 0) {
 +		panic("offline SystemOS: VFS_MOUNT failed: %d", error);
 +	}
-+	/* vfs_syscalls.c place_mount_and_checkdirs() is static; plant the same state. */
++	/* vfs_syscalls.c place_mount_and_checkdirs() is static; plant the same state here. */
 +	mp->mnt_vnodecovered = mntvp;
 +	vnode_lock_spin(mntvp);
 +	mntvp->v_mountedhere = mp;
@@ -89,9 +84,9 @@ index a5ff474..e1bdf7d 100644
 +	name_cache_lock();
 +	mount_generation++;
 +	name_cache_unlock();
-+	mount_list_add(mp);
++	(void)mount_list_add(mp);
 +	vfs_unbusy(mp);
-+	vfs_init_io_attributes(devvp, mp);
++	(void)vfs_init_io_attributes(devvp, mp);
 +	environment_vector[0] = scratch_addr + 0x400;
 +	environment_vector[1] = USER_ADDR_NULL;
 +	if ((error = copyout(environment, environment_vector[0], sizeof(environment))) != 0 ||
@@ -113,7 +108,7 @@ index a5ff474..e1bdf7d 100644
  	int error;
  	struct execve_args init_exec_args;
  	user_addr_t argv0 = USER_ADDR_NULL, argv1 = USER_ADDR_NULL;
-@@ -7331,7 +7431,7 @@ load_init_program_at_path(proc_t p, user_addr_t scratch_addr, const char* path,
+@@ -7331,7 +7426,7 @@ load_init_program_at_path(proc_t p, user_addr_t scratch_addr, const char* path,
  	 */
  	init_exec_args.fname = argv0;
  	init_exec_args.argp = scratch_addr;
