@@ -206,7 +206,7 @@ kernel_args = [
   # leaf with the raw type GUID (48465300-...) instead, so the generic path never settles.
   # Naming the root device skips that match: rootdev= goes through IOBSDNameMatching, and the
   # report shows the SystemOS window's HFSX partition is disk0s1.
-  "rootdev=disk0s1",
+  "rootdev=ufsroot0",
   # Root publication normally ends in the owner-identity phase, which refuses every window
   # when the build carries no signed policy (the --unverified transport). This opt-in lets the
   # bring-up build publish exactly the windows the manifest describes, and turns each refusal
