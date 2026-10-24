@@ -32,12 +32,14 @@ fetch = ["KernelCache", "DeviceTree", "StaticTrustCache", "Cryptex1,SystemTrustC
 # The raw image for the userdata partition: the OS and SystemOS disk images of the IPSW behind a manifest.
 # first_lba / last_lba are the GPT entry "userdata" of LUN 0, read from the device.
 #
-# TODO(必改): 下面两个 LBA 是 sheng 的值，只作占位。nuwa 必须自己读：
-#   fastboot oem get-partition-info userdata     或   dump GPT 后取 "userdata" 条目
-# 注意 vermeer 仓里也是这两个数且带同样 TODO，说明它们可能只是照抄，不能当交叉验证。
+# Measured on nuwa itself (2026-10-24), no longer sheng's placeholders:
+# fastboot getvar partition-size:userdata reports 0x3804BBB000 bytes and
+# (last_lba - first_lba + 1) * lba_bytes == 0x3804BBB000 exactly, so these two LBAs agree with
+# the size the device itself exports. The driver never trusts them -- it re-reads the GPT entry
+# named "userdata" at boot (NativeUfs/RootLayout.h) -- they only bound the host-side image size.
 [userdata]
-first_lba = 0x2f3840
-last_lba = 0x3d0abfa
+first_lba = 0x2f7840
+last_lba = 0x3afc3fa
 lba_bytes = 4096
 windows = [
   { name = "OS", component = "OS" },
@@ -203,22 +205,25 @@ kernel_args = [
   # target kernel has no ApplePMGR of its own. Still required with a ramdisk root:
   # AMFI runs before BSD init, so the PMGR lookup happens regardless of where root lives.
   "sheng-pmgr=2",
-  # ---- root: the UFS volume again, now with a proven baseline (2026-10-24) -------------
-  # The ramdisk round worked: bsd_init mounted md0 and reached load_init_program (the screen
-  # showed "Process 1 exec of /sbin/launchd failed"), so the filesystem/mount side of the
-  # chain is no longer a suspect. What is left is device discovery only, and the driver's own
-  # probe already measured that IOBSDNameMatching finds disk0s1 (byName(disk0s1)=1,
-  # byContent=0). The previous attempt asked for rootdev=ufsroot0, a name IOMediaBSDClient
-  # overwrote with disk2, so the kernel's waitForService never matched and it panicked after
-  # its 120 s timeout. Ask for the name that was measured instead.
+  # ---- root: the real iOS root on userdata (2026-10-24) --------------------------------
+  # History, so the next round does not re-litigate it: the ramdisk root mounted md0 and reached
+  # load_init_program; the UFS root then published a window, IOBSDNameMatching resolved disk0s1 in
+  # one shot and bsd_init mounted the volume -- the screen showed "rootvp not authenticated after
+  # mounting" (AMFI seal), not a discovery failure. Both proved the lower chain, and both dead-end
+  # without a real Apple root: a hand-made HFSX can never pass FSIOC_KERNEL_ROOTAUTH.
+  # So the root now is the unchanged OS + SystemOS APFS images of the IPSW, published as the two
+  # SHNGROOT windows of the userdata partition (image built by scripts/make-userdata.py; flashing
+  # userdata erases Android -- accepted by the user on 2026-10-24 16:32).
+  # There is deliberately no rootdev= here: two windows are published, their diskXsY names depend
+  # on the publication order (SystemOS first, OS last -- NativeUfs/RootPublication.h), so the root
+  # is named by identity through the APFS volume UUID in [payload.adt] root_match_volume_uuid.
   "native-ufs-root=1",
-  "rootdev=disk0s1",
   # The build carries no signed policy (the --unverified transport), so the publication phase
   # refuses every window unless this opt-in is present.
   "native-ufs-root-unverified=1",
-  # The root manifest lives in "cust" (2 GiB, restored by a full ROM flash), not in userdata:
-  # root bring-up must not have to erase Android.
-  "native-ufs-root-partition=cust",
+  # The root manifest lives in userdata now: that partition holds the SHNGROOT image
+  # (1 MiB manifest + OS window + SystemOS window).
+  "native-ufs-root-partition=userdata",
   "armcpu-diagnostics=1",
   "-no_slto_panic",
 ]
@@ -235,9 +240,17 @@ cpu_regs = "0,0x100,0x200,0x300,0x400,0x500,0x600,0x700"
 # root_ramdisk is on. `PackedRAMDisk` would hand the bytes to a sparse block driver
 # (NativeRamBlock) instead — a different path with its own prelink, not what we want.
 #
-# `root_match_volume_uuid` is deliberately absent: it emitted /chosen/root-matching so
-# IOFindBSDRoot would match an IOMedia by UUID, which is exactly the IOKit matching that
-# stalled, and neither rd=md0 nor rootdev=disk0s1 reads it.
+# `root_match_volume_uuid` selects the root by the UUID APFS publishes as the IOMedia "UUID"
+# property (/chosen/root-matching -> IOFindBSDRoot parses it into an IOMedia match, IOKitBSDInit.cpp:727).
+# It is present now because the root moves to the userdata SHNGROOT layout, which publishes two
+# windows: the BSD name of an APFS volume (diskXsY) shifts with the publication order, so the name
+# cannot identify the root, and the previous rounddev=disk0s1 run already proved the mount itself
+# works (it stopped at the AMFI seal, not at discovery). Measured with scripts/apfs-info.py from
+# the unpacked IPSW: the OS volume of iPhone10,3_16.7.16_20H392 is uuid=dadd93f8-dbbf-4b17-a1df-0f11e64172f7
+# ("SydneyUpdate20H392.D22D221OS", APFS role=system, 10 checkpoint copies agree).
+# SystemOS is 96096b28-b6dc-4bc7-9d3a-2632a0fe53f1 ("SydneyUpdate20H392.D22D221SystemCryptex");
+# it is not the root, it mounts under /System/Cryptexes.
+root_match_volume_uuid = "DADD93F8-DBBF-4B17-A1DF-0F11E64172F7"
 ipad_identity = true
 unique_chip_id = "required"          # the platform seed is not stored in any repository
 
