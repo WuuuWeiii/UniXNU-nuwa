@@ -230,6 +230,12 @@ jobs:
         # CASE_SENSITIVE system volume the target kernel expects. hdiutil cannot write into a
         # plain file (newfs_hfs insists on a device node), so build a DMG, fill it, detach, and
         # keep the UDRW bytes: the filesystem sits at offset 0 where mdevadd() points.
+        #
+        # -layout NONE is mandatory: without it hdiutil puts a GPT in front of the volume
+        # ("EFI PART" at offset 512). IOFindBSDRoot only accepts "mdN" as a whole device, and a
+        # memory disk has no partition scanning, so md0 would be read as a disk whose volume
+        # header is not at 1024 and the HFS+ mount would fail. The assertion below refuses to
+        # ship such an image.
         if: ${{ inputs.assemble }}
         run: |
           set -euo pipefail
@@ -238,7 +244,8 @@ jobs:
           DMG="$GITHUB_WORKSPACE/root.dmg"
           rm -f "$IMG" "$DMG"
           mkdir -p mnt
-          hdiutil create -size "${SIZE_MIB}m" -fs "Case-sensitive HFS+" -volname System -ov "$DMG"
+          hdiutil create -size "${SIZE_MIB}m" -layout NONE -fs "Case-sensitive HFS+" \
+                         -volname System -ov "$DMG"
           hdiutil attach -nobrowse -mountpoint mnt "$DMG"
           mkdir -p mnt/System/Library/CoreServices mnt/System/Library/Extensions \
                    mnt/private/var/db mnt/private/etc mnt/usr/lib mnt/usr/bin \
@@ -260,7 +267,14 @@ jobs:
           hdiutil detach mnt
           mv "$DMG" "$IMG"
           ls -l "$IMG"
-          # HFSX signature lives at offset 1024 ('H+' with the case-sensitive 'HX' variant).
+          # A bare HFS+ volume carries its signature at 1024: 'HX' (case-sensitive, 0x4858) or
+          # 'H+' (0x482b). Anything else means a partition map crept in and md0 cannot mount.
+          sig=$(dd if="$IMG" bs=1 skip=1024 count=2 2>/dev/null | od -An -t x1 | tr -d ' \n')
+          echo "volume signature at 1024: $sig"
+          case "$sig" in
+            4858|482b) ;;
+            *) echo "::error::root.img is not a bare HFSX/HFS+ volume (signature $sig)"; exit 1 ;;
+          esac
           dd if="$IMG" bs=1 skip=1024 count=8 2>/dev/null | od -A d -t x1
 
       - name: Upload the ramdisk root
