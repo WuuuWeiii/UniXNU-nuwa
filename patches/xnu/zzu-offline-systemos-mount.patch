@@ -97,10 +97,10 @@ index a5ff474..edef204 100644
  	/*
  	 * So that init task is set with uid,gid 0 token
 diff --git a/iokit/bsddev/IOKitBSDInit.cpp b/iokit/bsddev/IOKitBSDInit.cpp
-index 92142f7..e44cdd0 100644
+index 92142f7..e44ad5f 100644
 --- a/iokit/bsddev/IOKitBSDInit.cpp
 +++ b/iokit/bsddev/IOKitBSDInit.cpp
-@@ -1633,3 +1633,43 @@ IOVnodeGetEntitlement(vnode_t vnode, int64_t off, const char *entitlement)
+@@ -1633,3 +1633,46 @@ IOVnodeGetEntitlement(vnode_t vnode, int64_t off, const char *entitlement)
  	}
  	return value;
  }
@@ -141,6 +141,9 @@ index 92142f7..e44cdd0 100644
 +		strlcat(path, name->getCStringNoCopy(), size);
 +		found = 1;
 +	}
-+	matching->release();
++	/*
++	 * waitForService() consumes the matching dictionary (IOFindBSDRoot retains it before the
++	 * call for exactly this reason), so it must not be released again here.
++	 */
 +	return found;
 +}
