@@ -207,6 +207,10 @@ kernel_args = [
   # Naming the root device skips that match: rootdev= goes through IOBSDNameMatching, and the
   # report shows the SystemOS window's HFSX partition is disk0s1.
   "rootdev=disk0s1",
+  # Match check: publish, wait 25 s, then panic with what IOFindBSDRoot's two strategies see
+  # (named root and Content=Apple_HFS). "Never matched" and "matched but never mounted" share
+  # one panic line in the kernel, so this separates them without a console.
+  "native-ufs-probe=15",
   # Root publication normally ends in the owner-identity phase, which refuses every window
   # when the build carries no signed policy (the --unverified transport). This opt-in lets the
   # bring-up build publish exactly the windows the manifest describes, and turns each refusal
