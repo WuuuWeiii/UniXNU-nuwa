@@ -202,6 +202,10 @@ kernel_args = [
   # publishes the UFS LUN 0 as the root candidate; the build driver requires exactly
   # one sheng-pmgr=2 alongside it (present above).
   "native-ufs-root=1",
+  # Media report: publish the root windows, then panic with every IOMedia on the system
+  # (BSD name, Content, Size, UUID). This is how we see whether IOStorageFamily created the
+  # whole-disk media and whether IOGUIDPartitionScheme derived an Apple_HFS leaf from it.
+  "native-ufs-probe=12",
   # Root publication normally ends in the owner-identity phase, which refuses every window
   # when the build carries no signed policy (the --unverified transport). This opt-in lets the
   # bring-up build publish exactly the windows the manifest describes, and turns each refusal
