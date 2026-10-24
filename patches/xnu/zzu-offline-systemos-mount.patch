@@ -97,10 +97,10 @@ index a5ff474..edef204 100644
  	/*
  	 * So that init task is set with uid,gid 0 token
 diff --git a/iokit/bsddev/IOKitBSDInit.cpp b/iokit/bsddev/IOKitBSDInit.cpp
-index 92142f7..00aeba8 100644
+index 92142f7..e44cdd0 100644
 --- a/iokit/bsddev/IOKitBSDInit.cpp
 +++ b/iokit/bsddev/IOKitBSDInit.cpp
-@@ -1633,3 +1633,41 @@ IOVnodeGetEntitlement(vnode_t vnode, int64_t off, const char *entitlement)
+@@ -1633,3 +1633,43 @@ IOVnodeGetEntitlement(vnode_t vnode, int64_t off, const char *entitlement)
  	}
  	return value;
  }
@@ -112,7 +112,9 @@ index 92142f7..00aeba8 100644
 +	OSDictionary *properties;
 +	OSString *uuid, *name;
 +	IOService *service;
-+	struct timespec timeout = { 30, 0 };
++	mach_timespec_t timeout;
++	timeout.tv_sec = 30;
++	timeout.tv_nsec = 0;
 +	int found = 0;
 +
 +	if (!matching || !path || size < 16) {
