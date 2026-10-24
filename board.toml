@@ -172,8 +172,18 @@ panic_screen = true
 # The original static/System trust caches, and the owner trust bundle built around them.
 # Same IPSW as sheng, so the same hashes are correct here.
 trust_cache_sha256 = [
+  # The two iPad7,1 17.7.11 caches earlier rounds shipped with; kept so old artifacts stay explainable.
   "7416ca4f8377146626bb284e2133c76bee6cb4e3ee0af5d648b186235a7323a7",
   "8900d6a93d7a59ce1a872a5c081e559f4240a218f97e12d44d22dda46644d68f",
+  # The real donor build: iPhone10,3 16.7.16 20H392. StaticTrustCache (2760 entries, 66264 B) and
+  # Cryptex1,SystemTrustCache (61 entries, 1488 B), unpacked from the DER-wrapped IM4P components of
+  # the IPSW and packed in the bundle layout UniXNU/scripts/build-original-system-trust.py uses
+  # (u32 version=2, u32 header=12, u32 static_end, then the two unmodified modules). Both modules
+  # were verified as complete version-2 caches (len == 24 + count * 24) before packaging.
+  # Why this exists: launchd was exec'd but SIGKILLed with "namespace 9 code 0x8", which
+  # check-air-nir-native.py:46 classifies as an EXEC security-policy refusal -- the payload had no
+  # trust cache at all, so no userland binary could prove its own trust.
+  "eb1475f643f45a974ebd40596f6e2b1cdf40205d2ca3c6094d774886099399c3",
 ]
 # sheng-* 参数保持原样：第一版跑的是 sheng package 的驱动代码（NativeLegacyDisplay / ShengPlatformPower /
 # 触控等），参数名和实现绑死。等 nuwa 自己的 kit 分歧了再改名，不要提前动。

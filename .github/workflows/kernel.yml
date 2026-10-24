@@ -399,6 +399,14 @@ jobs:
           ramdisk=$(python3 -c "import tomllib; print('yes' if tomllib.load(open('$GITHUB_WORKSPACE/device/board.toml', 'rb'))['payload'].get('root_ramdisk') else 'no')")
           echo "ramdisk root: $ramdisk"
           extra=()
+          # The payload never shipped a trust cache until now: /sbin/launchd was exec'd and then
+          # SIGKILLed with "namespace 9 code 0x8", which check-air-nir-native.py:46 classifies as an
+          # EXEC security-policy refusal -- the process had no trust of its own. Ship the donor
+          # build's two unchanged original modules (iPhone10,3 20H392), packed the way
+          # UniXNU/scripts/build-original-system-trust.py packs them.
+          trust="$GITHUB_WORKSPACE/device/trust/iphone10.3-16.7.16.bundle"
+          test -f "$trust" || { echo "::error::trust cache bundle missing: $trust"; exit 1; }
+          extra+=(--trust-cache "$trust")
           if [ "$ramdisk" = yes ]; then
             root=$(find "$GITHUB_WORKSPACE/root-artifact" -name 'root.img' | head -n1)
             test -n "$root" || { echo "::error::root.img not found in the nuwa-root-ramdisk artifact"; exit 1; }
