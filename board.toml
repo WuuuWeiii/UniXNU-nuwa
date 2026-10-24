@@ -243,6 +243,13 @@ kernel_args = [
   # Apple volume does NOT self-seal against this check -- the seal needs Image4 policy this
   # device cannot satisfy.
   "rd=md0x",
+  # The dyld shared cache of this root lives on the SystemOS (Cryptex) volume, not on the OS
+  # volume, and dyld only looks under /System/Library/Caches/com.apple.dyld. Measured 2026-10-24:
+  # with the trust cache in place launchd was exec'd and dyld then refused with
+  # "Library not loaded: /usr/lib/libSystem.B.dylib ... (no such file, no dyld cache)".
+  # patches/xnu/zzu-offline-systemos-mount.patch (device repository) mounts that volume read-only
+  # on /System/Cryptexes/OS and hands launchd DYLD_SHARED_CACHE_DIR pointing into it.
+  "offline-systemos-mount=1",
   # Diagnostic AMFI enforcement off. Measured 2026-10-24: with rd=md0x the kernel exec'd
   # /sbin/launchd and then SIGKILLed it with "unexpected SIGKILL of launchd with reason --
   # namespace 9 code 0x8 description none", which this repository's own check-air-nir-native.py:46

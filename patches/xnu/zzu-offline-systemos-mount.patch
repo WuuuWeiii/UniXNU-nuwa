@@ -1,0 +1,135 @@
+diff --git a/bsd/kern/kern_exec.c b/bsd/kern/kern_exec.c
+index 01af65c..b2635e3 100644
+--- a/bsd/kern/kern_exec.c
++++ b/bsd/kern/kern_exec.c
+@@ -7383,6 +7383,72 @@ static const char * init_programs[] = {
+  * 3		2		NA		/usr/appleinternal/sbin/launchd.development
+  * 4		3		1		/sbin/launchd
+  */
++/*
++ * Offline SystemOS mount. The dyld shared cache of a real iOS root lives on the SystemOS
++ * (Cryptex) volume, not on the OS volume, and the unmodified dyld only looks under
++ * /System/Library/Caches/com.apple.dyld. Mount that volume read-only and hand launchd a
++ * DYLD_SHARED_CACHE_DIR that points into it. Development instrument: gated by the
++ * offline-systemos-mount boot argument, and it never touches the root mount.
++ */
++extern int IOFillMediaDevicePath(const char *uuid, char *path, size_t size);
++extern int mount(proc_t, struct mount_args *, int32_t *);
++
++static int
++offline_systemos_mount(proc_t p, user_addr_t scratch_addr, user_addr_t *envp)
++{
++	static const char environment[] =
++	    "DYLD_SHARED_CACHE_DIR=/System/Cryptexes/OS/System/Library/Caches/com.apple.dyld";
++	static const char mountpoint[] = "/System/Cryptexes/OS";
++	static const char systemos_uuid[] = "96096B28-B6DC-4BC7-9D3A-2632A0FE53F1";
++	char argument[8];
++	char device_path[64];
++	user64_addr_t spec = scratch_addr + 0x160;
++	uint8_t payload[0x150] = {0};
++	uint64_t mount_flags = MNT_RDONLY;
++	uint16_t mount_mode = 1;
++	uint32_t anonymous_owner = 99;
++	struct mount_args request = {.type = scratch_addr + 0x100, .path = scratch_addr + 0x120,
++	    .flags = MNT_RDONLY, .data = scratch_addr + 0x200};
++	user64_addr_t environment_vector[2];
++	int32_t result = 0;
++	int error;
++
++	if (!PE_parse_boot_argn("offline-systemos-mount", argument, sizeof(argument))) {
++		return 0;
++	}
++	if (!IOFillMediaDevicePath(systemos_uuid, device_path, sizeof(device_path))) {
++		printf("offline SystemOS: no IOMedia with UUID %s\n", systemos_uuid);
++		return ENOENT;
++	}
++	memcpy(payload, &spec, sizeof(spec));
++	memcpy(payload + 8, &mount_flags, sizeof(mount_flags));
++	memcpy(payload + 16, &mount_mode, sizeof(mount_mode));
++	memcpy(payload + 0x144, &anonymous_owner, sizeof(anonymous_owner));
++	memcpy(payload + 0x148, &anonymous_owner, sizeof(anonymous_owner));
++	if ((error = copyout("apfs", request.type, 5)) != 0 ||
++	    (error = copyout(mountpoint, request.path, sizeof(mountpoint))) != 0 ||
++	    (error = copyout(device_path, spec, strlen(device_path) + 1)) != 0 ||
++	    (error = copyout(payload, request.data, sizeof(payload))) != 0) {
++		printf("offline SystemOS: copyout failed: %d\n", error);
++		return error;
++	}
++	if ((error = mount(p, &request, &result)) != 0) {
++		printf("offline SystemOS: mount %s on %s failed: %d\n", device_path, mountpoint, error);
++		return error;
++	}
++	environment_vector[0] = scratch_addr + 0x400;
++	environment_vector[1] = USER_ADDR_NULL;
++	if ((error = copyout(environment, environment_vector[0], sizeof(environment))) != 0 ||
++	    (error = copyout(environment_vector, scratch_addr + 0x500,
++	    sizeof(environment_vector))) != 0) {
++		return error;
++	}
++	*envp = scratch_addr + 0x500;
++	printf("offline SystemOS: %s mounted, dyld cache via %s\n", device_path,
++	    "/System/Cryptexes/OS/System/Library/Caches/com.apple.dyld");
++	return 0;
++}
++
+ void
+ load_init_program(proc_t p)
+ {
+@@ -7405,6 +7471,12 @@ load_init_program(proc_t p)
+ #if CONFIG_MEMORYSTATUS
+ 	(void) memorystatus_init_at_boot_snapshot();
+ #endif /* CONFIG_MEMORYSTATUS */
++	{
++		int offline_error = offline_systemos_mount(p, (user_addr_t)scratch_addr, &init_envp);
++		if (offline_error) {
++			printf("offline SystemOS mount unavailable: %d\n", offline_error);
++		}
++	}
+ 
+ #if DEBUG || DEVELOPMENT
+ 	/* Check for boot-arg suffix first */
+diff --git a/iokit/bsddev/IOKitBSDInit.cpp b/iokit/bsddev/IOKitBSDInit.cpp
+index 92142f7..61a1d1a 100644
+--- a/iokit/bsddev/IOKitBSDInit.cpp
++++ b/iokit/bsddev/IOKitBSDInit.cpp
+@@ -1633,3 +1633,40 @@ IOVnodeGetEntitlement(vnode_t vnode, int64_t off, const char *entitlement)
+ 	}
+ 	return value;
+ }
++
++extern "C" int
++IOFillMediaDevicePath(const char *wanted_uuid, char *path, size_t size)
++{
++	OSDictionary *matching = IOService::serviceMatching("IOMedia");
++	OSDictionary *properties;
++	OSString *uuid, *name;
++	IOService *service;
++	struct timespec timeout = { 30, 0 };
++	int found = 0;
++
++	if (!matching || !path || size < 16) {
++		if (matching) {
++			matching->release();
++		}
++		return 0;
++	}
++	properties = OSDictionary::withCapacity(1);
++	uuid = OSString::withCString(wanted_uuid);
++	if (properties && uuid) {
++		properties->setObject("UUID", uuid);
++		matching->setObject(kIOPropertyMatchKey, properties);
++	}
++	if (uuid) {
++		uuid->release();
++	}
++	if (properties) {
++		properties->release();
++	}
++	service = IOService::waitForService(matching, &timeout);
++	if (service && (name = OSDynamicCast(OSString, service->getProperty(kIOBSDNameKey)))) {
++		snprintf(path, size, "/dev/%s", name->getCStringNoCopy());
++		found = 1;
++	}
++	matching->release();
++	return found;
++}
