@@ -202,10 +202,11 @@ kernel_args = [
   # publishes the UFS LUN 0 as the root candidate; the build driver requires exactly
   # one sheng-pmgr=2 alongside it (present above).
   "native-ufs-root=1",
-  # Read-only diagnostic pass: parse LUN 0's GPT, find "userdata", read its first
-  # block, then panic with the GPT facts and the manifest status. The panic screen
-  # draws that text, which is how we read the driver's decision without a console.
-  "native-ufs-probe=10",
+  # Root publication normally ends in the owner-identity phase, which refuses every window
+  # when the build carries no signed policy (the --unverified transport). This opt-in lets the
+  # bring-up build publish exactly the windows the manifest describes, and turns each refusal
+  # into a panic the screen can show. It is inert in a NATIVE_VERIFIED_BLOCK build.
+  "native-ufs-root-unverified=1",
   "sheng-pmgr=2",
   "armcpu-diagnostics=1",
   "-no_slto_panic",
