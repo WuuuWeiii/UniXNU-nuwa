@@ -1,20 +1,23 @@
 diff --git a/bsd/kern/kern_exec.c b/bsd/kern/kern_exec.c
-index 01af65c..b2635e3 100644
+index a5ff474..0cfd2a1 100644
 --- a/bsd/kern/kern_exec.c
 +++ b/bsd/kern/kern_exec.c
-@@ -7383,6 +7383,72 @@ static const char * init_programs[] = {
-  * 3		2		NA		/usr/appleinternal/sbin/launchd.development
-  * 4		3		1		/sbin/launchd
-  */
+@@ -7258,10 +7258,85 @@ done:
+ }
+ #endif
+ 
 +/*
 + * Offline SystemOS mount. The dyld shared cache of a real iOS root lives on the SystemOS
 + * (Cryptex) volume, not on the OS volume, and the unmodified dyld only looks under
-+ * /System/Library/Caches/com.apple.dyld. Mount that volume read-only and hand launchd a
-+ * DYLD_SHARED_CACHE_DIR that points into it. Development instrument: gated by the
-+ * offline-systemos-mount boot argument, and it never touches the root mount.
++ * /System/Library/Caches/com.apple.dyld. Mount that volume read-only on /System/Cryptexes/OS
++ * and hand launchd a DYLD_SHARED_CACHE_DIR that points into it. Development instrument: gated
++ * by the offline-systemos-mount boot argument, run once, and it never touches the root mount.
 + */
 +extern int IOFillMediaDevicePath(const char *uuid, char *path, size_t size);
 +extern int mount(proc_t, struct mount_args *, int32_t *);
++
++user_addr_t offline_init_envp = USER_ADDR_NULL;
++static boolean_t offline_systemos_done = FALSE;
 +
 +static int
 +offline_systemos_mount(proc_t p, user_addr_t scratch_addr, user_addr_t *envp)
@@ -36,7 +39,11 @@ index 01af65c..b2635e3 100644
 +	int32_t result = 0;
 +	int error;
 +
++	if (offline_systemos_done) {
++		return 0;
++	}
 +	if (!PE_parse_boot_argn("offline-systemos-mount", argument, sizeof(argument))) {
++		offline_systemos_done = TRUE;
 +		return 0;
 +	}
 +	if (!IOFillMediaDevicePath(systemos_uuid, device_path, sizeof(device_path))) {
@@ -67,27 +74,29 @@ index 01af65c..b2635e3 100644
 +		return error;
 +	}
 +	*envp = scratch_addr + 0x500;
++	offline_systemos_done = TRUE;
 +	printf("offline SystemOS: %s mounted, dyld cache via %s\n", device_path,
 +	    "/System/Cryptexes/OS/System/Library/Caches/com.apple.dyld");
 +	return 0;
 +}
 +
- void
- load_init_program(proc_t p)
+ static int
+ load_init_program_at_path(proc_t p, user_addr_t scratch_addr, const char* path, user_addr_t envp)
  {
-@@ -7405,6 +7471,12 @@ load_init_program(proc_t p)
- #if CONFIG_MEMORYSTATUS
- 	(void) memorystatus_init_at_boot_snapshot();
- #endif /* CONFIG_MEMORYSTATUS */
-+	{
-+		int offline_error = offline_systemos_mount(p, (user_addr_t)scratch_addr, &init_envp);
-+		if (offline_error) {
-+			printf("offline SystemOS mount unavailable: %d\n", offline_error);
-+		}
-+	}
+ 	int retval[2];
++	(void) offline_systemos_mount(p, scratch_addr, &offline_init_envp);
+ 	int error;
+ 	struct execve_args init_exec_args;
+ 	user_addr_t argv0 = USER_ADDR_NULL, argv1 = USER_ADDR_NULL;
+@@ -7331,7 +7406,7 @@ load_init_program_at_path(proc_t p, user_addr_t scratch_addr, const char* path,
+ 	 */
+ 	init_exec_args.fname = argv0;
+ 	init_exec_args.argp = scratch_addr;
+-	init_exec_args.envp = envp;
++	init_exec_args.envp = envp ? envp : offline_init_envp;
  
- #if DEBUG || DEVELOPMENT
- 	/* Check for boot-arg suffix first */
+ 	/*
+ 	 * So that init task is set with uid,gid 0 token
 diff --git a/iokit/bsddev/IOKitBSDInit.cpp b/iokit/bsddev/IOKitBSDInit.cpp
 index 92142f7..61a1d1a 100644
 --- a/iokit/bsddev/IOKitBSDInit.cpp
