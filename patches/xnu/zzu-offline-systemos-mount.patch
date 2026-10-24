@@ -1,8 +1,8 @@
 diff --git a/bsd/kern/kern_exec.c b/bsd/kern/kern_exec.c
-index a5ff474..723465b 100644
+index a5ff474..e1bdf7d 100644
 --- a/bsd/kern/kern_exec.c
 +++ b/bsd/kern/kern_exec.c
-@@ -7258,10 +7258,107 @@ done:
+@@ -7258,10 +7258,110 @@ done:
  }
  #endif
  
@@ -113,7 +113,7 @@ index a5ff474..723465b 100644
  	int error;
  	struct execve_args init_exec_args;
  	user_addr_t argv0 = USER_ADDR_NULL, argv1 = USER_ADDR_NULL;
-@@ -7331,7 +7428,7 @@ load_init_program_at_path(proc_t p, user_addr_t scratch_addr, const char* path,
+@@ -7331,7 +7431,7 @@ load_init_program_at_path(proc_t p, user_addr_t scratch_addr, const char* path,
  	 */
  	init_exec_args.fname = argv0;
  	init_exec_args.argp = scratch_addr;
