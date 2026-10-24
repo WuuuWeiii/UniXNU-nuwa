@@ -389,20 +389,25 @@ jobs:
         run: |
           fd=$(find "$GITHUB_WORKSPACE/stage1-artifacts" -name SILICIUM_UEFI.fd | head -n1)
           kernel=$(find "$GITHUB_WORKSPACE/kernel-artifact" -name 'kernel.macho' | head -n1)
-          # The root of this bring-up: a RAM disk handed to the kernel through the payload's
-          # `initrd`, which DarwinBoot copies into the boot window and records as the
-          # /chosen/memory-map RAMDisk range. rd=md0 then binds it to /dev/md0.
-          root=$(find "$GITHUB_WORKSPACE/root-artifact" -name 'root.img' | head -n1)
           test -n "$fd" || { echo "::error::SILICIUM_UEFI.fd not found in the stage1 artifact"; exit 1; }
           test -n "$kernel" || { echo "::error::kernel.macho not found in the kernel artifact"; exit 1; }
-          test -n "$root" || { echo "::error::root.img not found in the nuwa-root-ramdisk artifact"; exit 1; }
           echo "firmware: $fd"
           echo "kernel  : $kernel"
-          echo "root    : $root ($(stat -c%s "$root") bytes)"
+          # board.toml [payload] root_ramdisk decides where the root comes from. Only the
+          # ramdisk root needs the image in the payload: rd=md0 reads it from initrd, while a
+          # UFS root is found by rootdev= and must not carry 64 MiB of unused volume.
+          ramdisk=$(python3 -c "import tomllib; print('yes' if tomllib.load(open('$GITHUB_WORKSPACE/device/board.toml', 'rb'))['payload'].get('root_ramdisk') else 'no')")
+          echo "ramdisk root: $ramdisk"
+          extra=()
+          if [ "$ramdisk" = yes ]; then
+            root=$(find "$GITHUB_WORKSPACE/root-artifact" -name 'root.img' | head -n1)
+            test -n "$root" || { echo "::error::root.img not found in the nuwa-root-ramdisk artifact"; exit 1; }
+            echo "root    : $root ($(stat -c%s "$root") bytes)"
+            extra+=(--data-ramdisk "$root")
+          fi
           python3 ./unixnu defconfig nuwa_defconfig -D "$GITHUB_WORKSPACE/device"
           python3 ./unixnu build payload -D "$GITHUB_WORKSPACE/device" --kernel "$kernel" \
-            --unique-chip-id "${{ inputs.unique_chip_id }}" \
-            --data-ramdisk "$root"
+            --unique-chip-id "${{ inputs.unique_chip_id }}" "${extra[@]}"
           python3 ./unixnu bootimg -D "$GITHUB_WORKSPACE/device" \
             --uefi "$UNIXNU_UEFI" --fd "$fd" --dtb "$UNIXNU_DTB" \
             --ramdisk "$UNIXNU_OUT/nuwa/payload/payload.img" || true

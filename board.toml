@@ -153,6 +153,11 @@ loader = "firmware"
 title = "nuwa first boot: source 4K XNU to console"
 dram_size = "0x80000000"             # first-boot window as sheng; TODO 上机后用 SMEM RAM 表实测值替换
 skip_setup_tool = "scripts/seed-data-skip-setup.py"   # used by --skip-setup
+# Hand the root image (the nuwa-root-ramdisk artifact) to the payload as `initrd`, so
+# DarwinBoot records it as /chosen/memory-map RAMDisk for the kernel's rd=md0 branch.
+# True = ramdisk root, false = the UFS volume named by rootdev=. Only one root at a time;
+# the two switches are checked against each other in the workflow.
+root_ramdisk = false
 # 探针已经给出结论（2026-10-23 15:39 真机）：绿条=DarwinBoot、蓝条=内核入口、品红条=MMU 使能前，
 # 之后 5 秒复位 —— 说明内核执行到 MMU 之后才停住。现在把"静默"变成"文字"：panic() 的格式串
 # 直接画在帧缓冲上。地址已按我们内核的符号重算（_panic 0xFFFFFFF00799AD50 / _vinfo 0xFFFFFFF007AEA970）。
@@ -198,18 +203,22 @@ kernel_args = [
   # target kernel has no ApplePMGR of its own. Still required with a ramdisk root:
   # AMFI runs before BSD init, so the PMGR lookup happens regardless of where root lives.
   "sheng-pmgr=2",
-  # ---- root: a ramdisk, not the UFS volume (2026-10-24) -------------------------------
-  # The UFS path stalled inside the kernel, not in the driver: IOKitBSDInit's
-  # waitForMatchingServiceWithToken scans once and is only woken by a service that
-  # registers *and already matches*, while BSD Name / Content are attached after
-  # registration. IOMediaBSDClient also renamed our leaf (disk2), so rootdev=ufsroot0
-  # never resolved. rd=md0 takes a completely different branch in IOFindBSDRoot:
-  # it reads /chosen/memory-map RAMDisk, calls mdevadd() and jumps straight to the
-  # common exit, with no IOMedia matching at all. It also makes bsd_rooted_ramdisk()
-  # true, which skips the AMFI root seal check (FSIOC_KERNEL_ROOTAUTH).
-  # DarwinBoot fills the RAMDisk range from the payload's `initrd` file; see
-  # [payload.adt] data_ramdisk and the nuwa-root-ramdisk artifact in kernel.yml.
-  "rd=md0",
+  # ---- root: the UFS volume again, now with a proven baseline (2026-10-24) -------------
+  # The ramdisk round worked: bsd_init mounted md0 and reached load_init_program (the screen
+  # showed "Process 1 exec of /sbin/launchd failed"), so the filesystem/mount side of the
+  # chain is no longer a suspect. What is left is device discovery only, and the driver's own
+  # probe already measured that IOBSDNameMatching finds disk0s1 (byName(disk0s1)=1,
+  # byContent=0). The previous attempt asked for rootdev=ufsroot0, a name IOMediaBSDClient
+  # overwrote with disk2, so the kernel's waitForService never matched and it panicked after
+  # its 120 s timeout. Ask for the name that was measured instead.
+  "native-ufs-root=1",
+  "rootdev=disk0s1",
+  # The build carries no signed policy (the --unverified transport), so the publication phase
+  # refuses every window unless this opt-in is present.
+  "native-ufs-root-unverified=1",
+  # The root manifest lives in "cust" (2 GiB, restored by a full ROM flash), not in userdata:
+  # root bring-up must not have to erase Android.
+  "native-ufs-root-partition=cust",
   "armcpu-diagnostics=1",
   "-no_slto_panic",
 ]
@@ -219,16 +228,16 @@ tool = "scripts/make-nuwa-adt.py"
 chip_id = "207"
 owned_memory_size = "0x130000000"
 cpu_regs = "0,0x100,0x200,0x300,0x400,0x500,0x600,0x700"
-# The root lives on a ramdisk: /chosen/memory-map must carry a plain `RAMDisk` node whose two
-# u64 are zero, and DarwinBoot fills in the real (physical address, size) pair when it copies
-# the payload's `initrd` into the boot window. `PackedRAMDisk` would instead hand the bytes to a
-# sparse block driver (NativeRamBlock), which is a different path with its own prelink; the
-# dense node is what IOFindBSDRoot's rd=md0 branch expects.
+# A ramdisk root needs /chosen/memory-map to carry a plain `RAMDisk` node whose two u64 are
+# zero; DarwinBoot then fills in the real (physical address, size) pair when it copies the
+# payload's `initrd` into the boot window, and IOFindBSDRoot's rd=md0 branch calls mdevadd().
+# This is only emitted when the payload is given --data-ramdisk, i.e. when [payload]
+# root_ramdisk is on. `PackedRAMDisk` would hand the bytes to a sparse block driver
+# (NativeRamBlock) instead — a different path with its own prelink, not what we want.
 #
-# `root_match_volume_uuid` is gone with it: it emitted /chosen/root-matching so IOFindBSDRoot
-# would match an IOMedia by UUID — exactly the IOKit matching that stalled. rd=md0 never reads it.
-# No `packed_data_ramdisk` either: payload.py only emits the packed node when that key is set,
-# so leaving it out selects `--data-ramdisk` and the dense RAMDisk node described above.
+# `root_match_volume_uuid` is deliberately absent: it emitted /chosen/root-matching so
+# IOFindBSDRoot would match an IOMedia by UUID, which is exactly the IOKit matching that
+# stalled, and neither rd=md0 nor rootdev=disk0s1 reads it.
 ipad_identity = true
 unique_chip_id = "required"          # the platform seed is not stored in any repository
 
