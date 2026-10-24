@@ -195,41 +195,40 @@ kernel_args = [
   "offline-key-events=1",
   # AMFI panics with "AMFI: No PMGR?" at ConfigurationSettings.cpp:235 without the
   # PMGR integration: it looks the service up during early init and the unchanged
-  # target kernel has no ApplePMGR of its own. One copy is enough (the build driver
-  # enforces exactly one when native-ufs-root=1).
-  # BSD init now panics at IOKitBSDInit.cpp:984 with "Failed to mount root device":
-  # the kernel itself is up, there is simply no block device behind it. NativeUfs
-  # publishes the UFS LUN 0 as the root candidate; the build driver requires exactly
-  # one sheng-pmgr=2 alongside it (present above).
-  "native-ufs-root=1",
-  # IOFindBSDRoot only auto-matches Content="Apple_HFS", and IOGUIDPartitionScheme labels the
-  # leaf with the raw type GUID (48465300-...) instead, so the generic path never settles.
-  # Naming the root device skips that match: rootdev= goes through IOBSDNameMatching, and the
-  # report shows the SystemOS window's HFSX partition is disk0s1.
-  "rootdev=ufsroot0",
-  "native-ufs-probe=15",
-  # Root publication normally ends in the owner-identity phase, which refuses every window
-  # when the build carries no signed policy (the --unverified transport). This opt-in lets the
-  # bring-up build publish exactly the windows the manifest describes, and turns each refusal
-  # into a panic the screen can show. It is inert in a NATIVE_VERIFIED_BLOCK build.
-  "native-ufs-root-unverified=1",
-  # Read the root manifest from a spare partition instead of userdata, so root bring-up does
-  # not have to erase Android. Xiaomi's "cust" (2 GiB, operator customisation) boots without
-  # being read and is restored by a full ROM flash; 512 MiB of it is plenty for the manifest.
-  "native-ufs-root-partition=cust",
+  # target kernel has no ApplePMGR of its own. Still required with a ramdisk root:
+  # AMFI runs before BSD init, so the PMGR lookup happens regardless of where root lives.
   "sheng-pmgr=2",
+  # ---- root: a ramdisk, not the UFS volume (2026-10-24) -------------------------------
+  # The UFS path stalled inside the kernel, not in the driver: IOKitBSDInit's
+  # waitForMatchingServiceWithToken scans once and is only woken by a service that
+  # registers *and already matches*, while BSD Name / Content are attached after
+  # registration. IOMediaBSDClient also renamed our leaf (disk2), so rootdev=ufsroot0
+  # never resolved. rd=md0 takes a completely different branch in IOFindBSDRoot:
+  # it reads /chosen/memory-map RAMDisk, calls mdevadd() and jumps straight to the
+  # common exit, with no IOMedia matching at all. It also makes bsd_rooted_ramdisk()
+  # true, which skips the AMFI root seal check (FSIOC_KERNEL_ROOTAUTH).
+  # DarwinBoot fills the RAMDisk range from the payload's `initrd` file; see
+  # [payload.adt] data_ramdisk and the nuwa-root-ramdisk artifact in kernel.yml.
+  "rd=md0",
   "armcpu-diagnostics=1",
   "-no_slto_panic",
-  "ml-timeout-lock-panic-scale=40",
 ]
 
 [payload.adt]
 tool = "scripts/make-nuwa-adt.py"
 chip_id = "207"
 owned_memory_size = "0x130000000"
-root_match_volume_uuid = "04769D26-2CA0-4825-B443-E2E5F88300F2"
 cpu_regs = "0,0x100,0x200,0x300,0x400,0x500,0x600,0x700"
-packed_data_ramdisk = true
+# The root lives on a ramdisk: /chosen/memory-map must carry a plain `RAMDisk` node whose two
+# u64 are zero, and DarwinBoot fills in the real (physical address, size) pair when it copies
+# the payload's `initrd` into the boot window. `PackedRAMDisk` would instead hand the bytes to a
+# sparse block driver (NativeRamBlock), which is a different path with its own prelink; the
+# dense node is what IOFindBSDRoot's rd=md0 branch expects.
+#
+# `root_match_volume_uuid` is gone with it: it emitted /chosen/root-matching so IOFindBSDRoot
+# would match an IOMedia by UUID — exactly the IOKit matching that stalled. rd=md0 never reads it.
+# No `packed_data_ramdisk` either: payload.py only emits the packed node when that key is set,
+# so leaving it out selects `--data-ramdisk` and the dense RAMDisk node described above.
 ipad_identity = true
 unique_chip_id = "required"          # the platform seed is not stored in any repository
 

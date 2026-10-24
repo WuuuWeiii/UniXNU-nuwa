@@ -219,6 +219,59 @@ jobs:
         working-directory: UniXNU
         run: python3 ./unixnu status || true
 
+      - name: Build the ramdisk root (Case-sensitive HFS+)
+        # The root of this bring-up is a RAM disk, not the UFS volume. IOFindBSDRoot's rd=md0
+        # branch reads /chosen/memory-map RAMDisk, calls mdevadd() and never touches IOKit
+        # matching; bsd_rooted_ramdisk() also skips the AMFI root seal check. The volume only
+        # has to be mountable — the first question is "does BSD init get a root at all", and a
+        # missing /sbin/launchd answers it with a different panic than "Failed to mount root device".
+        #
+        # 64 MiB keeps the payload under its 188 MiB budget (kernel ~54 MB) and matches the
+        # CASE_SENSITIVE system volume the target kernel expects. hdiutil cannot write into a
+        # plain file (newfs_hfs insists on a device node), so build a DMG, fill it, detach, and
+        # keep the UDRW bytes: the filesystem sits at offset 0 where mdevadd() points.
+        if: ${{ inputs.assemble }}
+        run: |
+          set -euo pipefail
+          SIZE_MIB=64
+          IMG="$GITHUB_WORKSPACE/root.img"
+          DMG="$GITHUB_WORKSPACE/root.dmg"
+          rm -f "$IMG" "$DMG"
+          mkdir -p mnt
+          hdiutil create -size "${SIZE_MIB}m" -fs "Case-sensitive HFS+" -volname System -ov "$DMG"
+          hdiutil attach -nobrowse -mountpoint mnt "$DMG"
+          mkdir -p mnt/System/Library/CoreServices mnt/System/Library/Extensions \
+                   mnt/private/var/db mnt/private/etc mnt/usr/lib mnt/usr/bin \
+                   mnt/bin mnt/sbin mnt/Developer
+          cat > mnt/System/Library/CoreServices/SystemVersion.plist <<'PLIST'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>ProductBuildVersion</key><string>20H392</string>
+            <key>ProductName</key><string>iPhone OS</string>
+            <key>ProductVersion</key><string>16.7.16</string>
+          </dict>
+          </plist>
+          PLIST
+          echo "unixnu nuwa bring-up root (ramdisk)" > mnt/etc-unixnu-root.txt
+          sync
+          df -h mnt
+          hdiutil detach mnt
+          mv "$DMG" "$IMG"
+          ls -l "$IMG"
+          # HFSX signature lives at offset 1024 ('H+' with the case-sensitive 'HX' variant).
+          dd if="$IMG" bs=1 skip=1024 count=8 2>/dev/null | od -A d -t x1
+
+      - name: Upload the ramdisk root
+        if: ${{ inputs.assemble }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: nuwa-root-ramdisk
+          path: root.img
+          compression-level: 0
+          if-no-files-found: error
+
       - name: Upload the prelinked kernel and logs
         if: always()
         uses: actions/upload-artifact@v4
@@ -311,18 +364,31 @@ jobs:
           name: nuwa-kernel-${{ github.run_number }}
           path: kernel-artifact
 
+      - name: Download this run's ramdisk root
+        uses: actions/download-artifact@v4
+        with:
+          name: nuwa-root-ramdisk
+          path: root-artifact
+
       - name: Build the payload and pack the boot image
         working-directory: UniXNU
         run: |
           fd=$(find "$GITHUB_WORKSPACE/stage1-artifacts" -name SILICIUM_UEFI.fd | head -n1)
           kernel=$(find "$GITHUB_WORKSPACE/kernel-artifact" -name 'kernel.macho' | head -n1)
+          # The root of this bring-up: a RAM disk handed to the kernel through the payload's
+          # `initrd`, which DarwinBoot copies into the boot window and records as the
+          # /chosen/memory-map RAMDisk range. rd=md0 then binds it to /dev/md0.
+          root=$(find "$GITHUB_WORKSPACE/root-artifact" -name 'root.img' | head -n1)
           test -n "$fd" || { echo "::error::SILICIUM_UEFI.fd not found in the stage1 artifact"; exit 1; }
           test -n "$kernel" || { echo "::error::kernel.macho not found in the kernel artifact"; exit 1; }
+          test -n "$root" || { echo "::error::root.img not found in the nuwa-root-ramdisk artifact"; exit 1; }
           echo "firmware: $fd"
           echo "kernel  : $kernel"
+          echo "root    : $root ($(stat -c%s "$root") bytes)"
           python3 ./unixnu defconfig nuwa_defconfig -D "$GITHUB_WORKSPACE/device"
           python3 ./unixnu build payload -D "$GITHUB_WORKSPACE/device" --kernel "$kernel" \
-            --unique-chip-id "${{ inputs.unique_chip_id }}"
+            --unique-chip-id "${{ inputs.unique_chip_id }}" \
+            --data-ramdisk "$root"
           python3 ./unixnu bootimg -D "$GITHUB_WORKSPACE/device" \
             --uefi "$UNIXNU_UEFI" --fd "$fd" --dtb "$UNIXNU_DTB" \
             --ramdisk "$UNIXNU_OUT/nuwa/payload/payload.img" || true
