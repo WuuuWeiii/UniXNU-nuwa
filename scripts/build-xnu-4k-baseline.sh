@@ -38,6 +38,10 @@ fi
 # changed since then fails to apply ("patch does not apply"). Reset the tracked sources to the
 # pristine checkout first; compiler output lives under untracked paths and survives.
 git -C .cache/xnu-work checkout -- . 2>/dev/null || true
+# Patches that create files from /dev/null leave them behind as untracked paths, and re-applying
+# then fails with "already exists in working directory". These are the only two such files.
+rm -f .cache/xnu-work/osfmk/kern/boot_progress.h
+rm -f .cache/xnu-work/bsd/kern/source_pthread_bootstrap.c
 for LATE_PATCH in "$ROOT/patches/xnu/zzz-boot-progress.patch" "$ROOT/patches/xnu/zzy-native-gpu-addon-mount.patch"; do
   if git -C .cache/xnu-work apply --reverse --check "$LATE_PATCH" >/dev/null 2>&1; then
     git -C .cache/xnu-work apply --reverse "$LATE_PATCH"
