@@ -217,6 +217,16 @@ kernel_args = [
   # There is deliberately no rootdev= here: two windows are published, their diskXsY names depend
   # on the publication order (SystemOS first, OS last -- NativeUfs/RootPublication.h), so the root
   # is named by identity through the APFS volume UUID in [payload.adt] root_match_volume_uuid.
+  # Declare the root as a ramdisk although it is not one. bsd_rooted_ramdisk() (bsd_init.c:449)
+  # only parses this boot argument and compares it against "md0"; when it matches, the kernel
+  # skips FSIOC_KERNEL_ROOTAUTH completely (bsd_init.c:929). The real root is still the APFS
+  # volume matched by UUID above: IOFindBSDRoot prefers /chosen/root-matching over rd=
+  # (IOKitBSDInit.cpp:727, matching is already set before the rd= branch is consulted) and only
+  # touches the RAMDisk node when /chosen/memory-map carries one, which it does not.
+  # Measured 2026-10-24: with the real OS/SystemOS APFS windows the screen showed
+  # "rootvp not authenticated after mounting @bsd_init.c:1098", i.e. a genuine Apple volume does
+  # NOT self-seal against this check -- the seal needs the Image4 policy this device cannot pass.
+  "rd=md0",
   "native-ufs-root=1",
   # The build carries no signed policy (the --unverified transport), so the publication phase
   # refuses every window unless this opt-in is present.
