@@ -229,6 +229,17 @@ jobs:
           path: ${{ env.UNIXNU_OUT }}/nuwa/logs/kernel.log
           if-no-files-found: ignore
 
+      - name: Upload the patch targets when the build fails
+        # A patch that does not apply can only be diagnosed against the tree the runner actually has.
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tree-excerpt
+          path: |
+            ${{ env.UNIXNU_OUT }}/nuwa/tree/.cache/xnu-work/bsd/kern/kern_exec.c
+            ${{ env.UNIXNU_OUT }}/nuwa/tree/.cache/xnu-work/iokit/bsddev/IOKitBSDInit.cpp
+          if-no-files-found: ignore
+
       - name: Build the ramdisk root (Case-sensitive HFS+)
         # The root of this bring-up is a RAM disk, not the UFS volume. IOFindBSDRoot's rd=md0
         # branch reads /chosen/memory-map RAMDisk, calls mdevadd() and never touches IOKit
