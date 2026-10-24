@@ -207,6 +207,7 @@ kernel_args = [
   # Naming the root device skips that match: rootdev= goes through IOBSDNameMatching, and the
   # report shows the SystemOS window's HFSX partition is disk0s1.
   "rootdev=ufsroot0",
+  "native-ufs-probe=15",
   # Root publication normally ends in the owner-identity phase, which refuses every window
   # when the build carries no signed policy (the --unverified transport). This opt-in lets the
   # bring-up build publish exactly the windows the manifest describes, and turns each refusal
