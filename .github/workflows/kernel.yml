@@ -161,6 +161,11 @@ jobs:
         env:
           JOBS: ${{ inputs.jobs || '3' }}
         run: |
+          # The assembled tree only links the device repository's own patch module. The driver's
+          # xnu patch set has to be staged where build-xnu-4k-baseline.sh reads it; without this
+          # only the device patch is applied and it fails against its absent prerequisites.
+          mkdir -p "$UNIXNU_OUT/nuwa/tree/patches/xnu"
+          cp -f patches/xnu/*.patch "$UNIXNU_OUT/nuwa/tree/patches/xnu/"
           python3 ./unixnu build kernel -D "$GITHUB_WORKSPACE/device" -j "$JOBS"
           test -f "$UNIXNU_OUT/nuwa/kernel/kernel.macho" || { echo "::error::bootstrap prelink did not produce kernel.macho"; exit 1; }
           test -f "$UNIXNU_OUT/nuwa/kernel/kernel.json" || { echo "::error::bootstrap prelink did not produce kernel.json"; exit 1; }
