@@ -1,5 +1,5 @@
 diff --git a/bsd/kern/kern_exec.c b/bsd/kern/kern_exec.c
-index a5ff474..edef204 100644
+index a5ff474..76933f7 100644
 --- a/bsd/kern/kern_exec.c
 +++ b/bsd/kern/kern_exec.c
 @@ -7258,10 +7258,84 @@ done:
@@ -46,7 +46,7 @@ index a5ff474..edef204 100644
 +		return 0;
 +	}
 +	if (!IOFillMediaDevicePath(systemos_uuid, device_path, sizeof(device_path))) {
-+		printf("offline SystemOS: no IOMedia with UUID %s\n", systemos_uuid);
++		panic("offline SystemOS: no IOMedia with UUID %s", systemos_uuid);
 +		return ENOENT;
 +	}
 +	memcpy(payload, &spec, sizeof(spec));
@@ -58,11 +58,11 @@ index a5ff474..edef204 100644
 +	    (error = copyout(mountpoint, request.path, sizeof(mountpoint))) != 0 ||
 +	    (error = copyout(device_path, spec, strlen(device_path) + 1)) != 0 ||
 +	    (error = copyout(payload, request.data, sizeof(payload))) != 0) {
-+		printf("offline SystemOS: copyout failed: %d\n", error);
++		panic("offline SystemOS: copyout failed: %d", error);
 +		return error;
 +	}
 +	if ((error = mount(p, &request, &result)) != 0) {
-+		printf("offline SystemOS: mount %s on %s failed: %d\n", device_path, mountpoint, error);
++		panic("offline SystemOS: mount %s on %s failed: %d", device_path, mountpoint, error);
 +		return error;
 +	}
 +	environment_vector[0] = scratch_addr + 0x400;
