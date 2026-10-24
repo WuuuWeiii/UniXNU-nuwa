@@ -33,6 +33,11 @@ fi
 # Remove them first so earlier independent patches retain their idempotent checks.
 # The same holds for the boot-time GPU addon mount (zzy), which edits the owner Data mount function inside the systemos patch.
 # Reverse newest first; the loop below re-applies them in name order.
+#
+# The CI object-tree cache keeps the patched work tree from the previous run, so a patch set that
+# changed since then fails to apply ("patch does not apply"). Reset the tracked sources to the
+# pristine checkout first; compiler output lives under untracked paths and survives.
+git -C .cache/xnu-work checkout -- . 2>/dev/null || true
 for LATE_PATCH in "$ROOT/patches/xnu/zzz-boot-progress.patch" "$ROOT/patches/xnu/zzy-native-gpu-addon-mount.patch"; do
   if git -C .cache/xnu-work apply --reverse --check "$LATE_PATCH" >/dev/null 2>&1; then
     git -C .cache/xnu-work apply --reverse "$LATE_PATCH"
