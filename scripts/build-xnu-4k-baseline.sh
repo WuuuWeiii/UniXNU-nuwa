@@ -42,6 +42,7 @@ git -C .cache/xnu-work checkout -- . 2>/dev/null || true
 # then fails with "already exists in working directory". These are the only two such files.
 rm -f .cache/xnu-work/osfmk/kern/boot_progress.h
 rm -f .cache/xnu-work/bsd/kern/source_pthread_bootstrap.c
+rm -f .cache/xnu-work/bsd/kern/native_console_log.c
 for LATE_PATCH in "$ROOT/patches/xnu/zzz-boot-progress.patch" "$ROOT/patches/xnu/zzy-native-gpu-addon-mount.patch"; do
   if git -C .cache/xnu-work apply --reverse --check "$LATE_PATCH" >/dev/null 2>&1; then
     git -C .cache/xnu-work apply --reverse "$LATE_PATCH"
