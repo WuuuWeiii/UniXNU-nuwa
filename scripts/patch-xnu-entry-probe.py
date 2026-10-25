@@ -350,6 +350,8 @@ def file_offset(va):
 def branch(from_va, to_va):
     delta = (to_va - from_va) // 4
     if (to_va - from_va) % 4 or not -(1 << 25) <= delta < (1 << 25):
+        print(f'branch out of range: {from_va:#x} -> {to_va:#x} '
+              f'({abs(to_va - from_va) / 2**20:.1f} MiB, limit 128 MiB)', file=sys.stderr)
         raise SystemExit('Branch out of range')
     return 0x14000000 | (delta & 0x3FFFFFF)
 
