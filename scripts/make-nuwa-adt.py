@@ -81,6 +81,9 @@ def main():
     parser.add_argument('--unique-chip-id', type=lambda value: int(value, 16), default=None,
                         help='/chosen/unique-chip-id (8 bytes) and --chip-id (4 bytes) seed XNU IOPlatformUUID; software identity seeds, not Apple silicon IDs')
     parser.add_argument('--chip-id', type=lambda value: int(value, 16), default=None)
+    parser.add_argument('--iphone-identity', action='store_true',
+                        help='B-track ADT: present the tree as the iPhone10,3 (D22AP) whose iOS 16 userland runs here, '
+                             'with the /chosen security-status tuple, SIP-off /asmb and the /sweet-ufs node bsd/dev/sweet_ufs.c reads')
     parser.add_argument('--ipad-identity', action='store_true',
                         help='/product and /buttons describe an iPad-class device without a Home button (MobileGestalt reads these from the tree); '
                              'values follow the unchanged iPad7,1 tree, the panel geometry and button set are nuwa\'s')
@@ -118,14 +121,28 @@ def main():
     tree = node('device-tree', [
         # hw.product/hw.machine/hw.target come from the root 'model'/'target-type' (IODTPlatformExpert);
         # libMobileGestalt prefix-matches hw.product against iPhone/iPod/iPad, so the iPad identity needs both here.
-        ('model', b'iPad7,1\0' if args.ipad_identity else b'nuwa-first-boot\0'),
-        *([('target-type', b'J120\0')] if args.ipad_identity else []),
+        ('model', b'iPhone10,3\0' if args.iphone_identity else (b'iPad7,1\0' if args.ipad_identity else b'nuwa-first-boot\0')),
+        *([('target-type', b'D22\0')] if args.iphone_identity else ([('target-type', b'J120\0')] if args.ipad_identity else [])),
         # Root compatible strings of the compiled board DT (xiaomi,nuwa / qcom,sm8550).
-        ('compatible', b'xiaomi,nuwa\0qcom,sm8550\0'),
+        ('compatible', b'D22AP\0iPhone10,3\0xiaomi,nuwa\0qcom,sm8550\0AppleARM\0' if args.iphone_identity
+                       else b'xiaomi,nuwa\0qcom,sm8550\0'),
         ('#address-cells', struct.pack('<I', 2)),
         ('#size-cells', struct.pack('<I', 2)),
     ], [
         node('chosen', [('random-seed', os.urandom(64)),
+                        # B-track: the iOS 16 userland expects iBoot-style /chosen keys.
+                        # boot-manifest-hash is read by /sbin/mount -P 1, crypto-hash-method by
+                        # libimg4/cryptexd, display-scale by MobileGestalt/SpringBoard (3 = @3x),
+                        # and the security-status tuple makes mobileactivationd take its native
+                        # Hactivation branch (Activated with no activation record).
+                        *([('boot-manifest-hash', __import__('hashlib').sha384(b'nuwa boot manifest').digest()),
+                           ('crypto-hash-method', b'sha2-384\0'),
+                           ('display-scale', struct.pack('<I', 3)),
+                           ('certificate-production-status', struct.pack('<I', 0)),
+                           ('effective-production-status-ap', struct.pack('<I', 0)),
+                           ('certificate-security-mode', struct.pack('<I', 1)),
+                           ('effective-security-mode-sep', struct.pack('<I', 1))]
+                          if args.iphone_identity else []),
                         # Without these XNU never publishes IOPlatformUUID and gethostuuid() blocks forever
                         # for callers (configd) that pass a zero timeout.
                         *([('unique-chip-id', struct.pack('<Q', args.unique_chip_id)), ('chip-id', struct.pack('<I', args.chip_id))]
@@ -159,7 +176,10 @@ def main():
              [node('memory-map', ([("PackedRAMDisk" if args.packed_data_ramdisk else "RAMDisk", bytes(16))] if (args.data_ramdisk or args.packed_data_ramdisk) else []) +
                                  ([('TrustCache', bytes(16))] if args.trust_cache else [])),
               # Read by the original AppleImage4 at start-up; present and empty here.
-              node('manifest-properties')]),
+              node('manifest-properties'),
+              # B-track: SIP relaxed like csrutil disable (lp-sip0), unsealed root (lp-sip1).
+              *([node('asmb', [('lp-sip0', struct.pack('<Q', 0x6f)), ('lp-sip1', struct.pack('<I', 1))])]
+                if args.iphone_identity else [])]),
         node('cpus', children=cpus),
         *([node('psci', [('compatible', b'arm,psci-1.0\0'), ('method', args.psci_method.encode() + b'\0')])] if len(cpus) > 1 else []),
         # Suspend/resume is not implemented for this board. Use the original
@@ -194,6 +214,10 @@ def main():
               # negative. The node exists only for class matching; NativeUfs takes its
               # physical windows from the board DT constants in GccUfs.h.
               node('ufshc', [('compatible', b'qcom,sm8550-ufshc\0')])]),
+        # B-track: bsd/dev/sweet_ufs.c looks up /sweet-ufs and reads reg as the UFS host base.
+        *([node('sweet-ufs', [('compatible', b'qcom,ufshc\0'),
+                              ('reg', struct.pack('<QQ', UFS_HC, UFS_HC_SIZE))])]
+          if args.iphone_identity else []),
     ])
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_bytes(tree)
