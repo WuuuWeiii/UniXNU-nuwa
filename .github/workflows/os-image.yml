@@ -66,10 +66,13 @@ jobs:
           whole="$(echo "$attachment" | awk '$2 == "GUID_partition_scheme" {print $1}' | head -1)"
           volume="$(echo "$attachment" | awk '$2 == "Apple_APFS" {print $1}' | head -1)"
           echo "whole=$whole volume=$volume"
-          # hdiutil resize only grew the image file; carry the growth into the GPT partition and
-          # then into the APFS container before writing the cache.
-          diskutil resizeVolume "$whole" 0
-          diskutil apfs resizeContainer "$volume" 0 || true
+          # hdiutil resize only grew the image file; carry the growth into the GPT partition (the
+          # APFS container is a derived disk, so resize the partition it sits on) and then grow the
+          # container into it.
+          diskutil resizeVolume "$volume" 0
+          container="$(echo "$attachment" | awk '$2 == "EF57347C-0000-11AA-AA11-0030654" {print $1}' | head -1)"
+          echo "apfs container: $container"
+          if [ -n "$container" ]; then diskutil apfs resizeContainer "$container" 0; fi
           df -h work/os
           echo "=== caches before ==="
           ls -la work/os/System/Library/Caches/
