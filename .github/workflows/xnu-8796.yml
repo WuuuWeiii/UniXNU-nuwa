@@ -1,0 +1,93 @@
+name: xnu-8796
+
+# B-track kernel: the xnu-8796 generation (macOS 13.5, the same one as iOS 16.6/16.7) with the
+# ios-sweet patch set (MIT, dipa-studio/ios-sweet). The patch scripts stage libpthread, BearSSL
+# and Apple's open-source HFS (hfs-627.100.6) into the tree, which is what makes a self-made
+# journaled HFS+ root possible in the first place.
+on:
+  workflow_dispatch:
+    inputs:
+      macos_version:
+        description: macOS release whose xnu to build (13.5 = xnu-8796)
+        default: "13.5"
+      kernel_config:
+        description: RELEASE / DEVELOPMENT / DEBUG
+        default: DEVELOPMENT
+      machine_config:
+        description: xnu MACHINE_CONFIG
+        default: SWEET
+      keep_going:
+        description: make -k
+        default: "true"
+  push:
+    branches: [main]
+    paths:
+      - "patches/xnu-sweet/**"
+      - ".github/workflows/xnu-8796.yml"
+
+concurrency:
+  group: xnu-8796-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  DXB_REPO: https://github.com/blacktop/darwin-xnu-build
+  DXB_SHA: 663906528d1cd5ea8fde7de6f16de73db9511549
+  MACOS_VERSION: ${{ inputs.macos_version || '13.5' }}
+  KERNEL_CONFIG: ${{ inputs.kernel_config || 'DEVELOPMENT' }}
+  MACHINE_CONFIG: ${{ inputs.machine_config || 'SWEET' }}
+
+jobs:
+  build:
+    runs-on: macos-14
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Fetch build script
+        run: |
+          git init -q dxb
+          git -C dxb fetch -q --depth 1 "$DXB_REPO" "$DXB_SHA"
+          git -C dxb checkout -q FETCH_HEAD
+          cp patches/xnu-sweet/*.patch patches/xnu-sweet/*.sh dxb/patches/
+          sed -i '' 's/ARCHS="x86_64 arm64e" VALID_ARCHS="x86_64 arm64e"/ARCHS="x86_64 arm64e arm64" VALID_ARCHS="x86_64 arm64e arm64"/' dxb/build.sh
+          ls dxb/patches | head -20
+          ls dxb/patches | wc -l
+
+      - name: Deps
+        run: |
+          brew install jq gum bash cmake ninja
+          printf '#!/bin/sh\nexit 0\n' | sudo tee /usr/local/bin/xcodes >/dev/null
+          sudo chmod +x /usr/local/bin/xcodes
+          sw_vers
+          XC=$(ls -d /Applications/Xcode_*.app | sort -V | head -1)
+          echo "DEVELOPER_DIR=$XC/Contents/Developer" >> "$GITHUB_ENV"
+          sudo xcode-select -s "$XC"
+          xcodebuild -version
+
+      - name: Build
+        working-directory: dxb
+        env:
+          MAKEFLAGS: ${{ inputs.keep_going == 'false' && '' || '-k' }}
+        run: bash build.sh
+
+      - name: Collect
+        if: always()
+        run: |
+          mkdir -p out
+          cp -R dxb/fakeroot/System/Library/Kernels/. out/ 2>/dev/null || true
+          ls -la out
+          (cd out && shasum -a 256 kernel.* > SHA256SUMS) || true
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: xnu-8796-kernel
+          path: out/
+          if-no-files-found: warn
+
+      - name: Upload the build log
+        if: always()
+        run: |
+          mkdir -p logs
+          cd dxb 2>/dev/null && (bash -c 'ls' >/dev/null 2>&1) || true
+          echo done
