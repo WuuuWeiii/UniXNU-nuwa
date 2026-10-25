@@ -27,10 +27,10 @@ index 94243c9..bf0715f 100644
  }
 diff --git a/bsd/kern/native_console_log.c b/bsd/kern/native_console_log.c
 new file mode 100644
-index 0000000..d9f43bb
+index 0000000..d9edc00
 --- /dev/null
 +++ b/bsd/kern/native_console_log.c
-@@ -0,0 +1,102 @@
+@@ -0,0 +1,123 @@
 +/*
 + * Persistent console log: a 4 MiB ring filled in the console layer is flushed once a second
 + * to the tail of the root device, so a boot log survives a panic and can be pulled from the
@@ -69,6 +69,27 @@ index 0000000..d9f43bb
 +
 +void native_console_log_start(void);
 +
++static void
++log_copy(void *dst, const void *src, size_t len)
++{
++	char *to = (char *)dst;
++	const char *from = (const char *)src;
++	size_t index;
++	for (index = 0; index < len; index++) {
++		to[index] = from[index];
++	}
++}
++
++static void
++log_zero(void *dst, size_t len)
++{
++	char *to = (char *)dst;
++	size_t index;
++	for (index = 0; index < len; index++) {
++		to[index] = 0;
++	}
++}
++
 +static int
 +native_console_log_write(vnode_t devvp, off_t offset, caddr_t data, size_t size)
 +{
@@ -77,7 +98,7 @@ index 0000000..d9f43bb
 +	if (bp == NULL) {
 +		return EIO;
 +	}
-+	bcopy(data, buf_dataptr(bp), size);
++	log_copy(buf_dataptr(bp), data, size);
 +	buf_strategy(devvp, bp);
 +	buf_brelse(bp);
 +	return 0;
@@ -105,12 +126,12 @@ index 0000000..d9f43bb
 +		{
 +			uint32_t version = 1;
 +			uint32_t ring = CONSOLE_LOG_BYTES;
-+			memset(native_console_log_header, 0, CONSOLE_LOG_HEADER);
-+			bcopy(CONSOLE_LOG_MAGIC, native_console_log_header, 7);
-+			bcopy(&version, native_console_log_header + 8, 4);
-+			bcopy(&ring, native_console_log_header + 12, 4);
-+			bcopy(&total, native_console_log_header + 16, 8);
-+			bcopy(&native_console_log_flushed, native_console_log_header + 24, 8);
++			log_zero(native_console_log_header, CONSOLE_LOG_HEADER);
++			log_copy(native_console_log_header, CONSOLE_LOG_MAGIC, 7);
++			log_copy(native_console_log_header + 8, &version, 4);
++			log_copy(native_console_log_header + 12, &ring, 4);
++			log_copy(native_console_log_header + 16, &total, 8);
++			log_copy(native_console_log_header + 24, &native_console_log_flushed, 8);
 +			native_console_log_write(devvp, CONSOLE_LOG_TAIL, native_console_log_header, CONSOLE_LOG_HEADER);
 +		}
 +		for (offset = 0; offset < CONSOLE_LOG_BYTES; offset += CONSOLE_LOG_BLOCK) {
