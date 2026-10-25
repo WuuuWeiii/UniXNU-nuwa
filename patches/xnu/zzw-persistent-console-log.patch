@@ -155,13 +155,14 @@ index 0000000..621bf9a
 +	}
 +}
 diff --git a/osfmk/arm/arm_init.c b/osfmk/arm/arm_init.c
-index 7187c15..e272fd7 100644
+index 7187c15..c2e6ccf 100644
 --- a/osfmk/arm/arm_init.c
 +++ b/osfmk/arm/arm_init.c
-@@ -371,6 +371,11 @@ arm_init(
+@@ -370,7 +370,11 @@ arm_init(
+ #endif /* defined(HAS_APPLE_PAC) */
  
  	PE_init_platform(FALSE, args); /* Get platform expert set up */
- 	boot_progress_init();
+-	boot_progress_init();
 +	{
 +		/* MMU is up and the kernel mapping is real: the console ring is safe from here on. */
 +		extern volatile boolean_t native_console_log_armed;
