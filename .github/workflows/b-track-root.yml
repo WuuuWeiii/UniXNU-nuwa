@@ -32,17 +32,12 @@ jobs:
       - name: Create and format the HFS+ image
         run: |
           size="${{ inputs.root_size }}"
-          # newfs_hfs wants a device, not a plain file: build an empty image, format the device
-          # behind it, then mount the image normally.
-          hdiutil create -size "${size}m" -type UDIF -volname iOSRoot ios16-root.img
-          attach="$(hdiutil attach -nomount ios16-root.img)"
-          echo "$attach"
-          dev="$(echo "$attach" | awk '{print $1}' | head -1)"
-          newfs_hfs -v iOSRoot -s -J -b 4096 "/dev/r$(basename "$dev")"
-          hdiutil detach "$dev"
+          # HFSX = case-sensitive HFS+, which is what the iOS root needs; hdiutil formats it.
+          hdiutil create -size "${size}m" -type UDIF -fs HFSX -volname iOSRoot ios16-root.dmg
           mkdir -p mnt
-          hdiutil attach ios16-root.img -mountpoint mnt -nobrowse
+          hdiutil attach ios16-root.dmg -mountpoint mnt -nobrowse
           df -h mnt
+          ls mnt
 
       - name: Mount the IPSW volumes
         run: |
@@ -117,7 +112,7 @@ jobs:
           hdiutil detach mnt
           sync
           # Export the plain HFS+ payload (no UDIF trailer): read the backing device directly.
-          attach="$(hdiutil attach -nomount ios16-root.img)"
+          attach="$(hdiutil attach -nomount ios16-root.dmg)"
           dev="$(echo "$attach" | awk '{print $1}' | head -1)"
           dd if="/dev/r$(basename "$dev")" of=ios16-root.raw bs=1m
           hdiutil detach "$dev"
