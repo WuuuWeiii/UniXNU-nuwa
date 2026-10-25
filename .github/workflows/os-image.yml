@@ -61,14 +61,18 @@ jobs:
       - name: Insert the cache into the OS volume
         run: |
           mkdir -p work/os
-          hdiutil attach work/os-rw.dmg -mountpoint work/os -nobrowse
-          # Grow the APFS container into the space hdiutil resize just added.
-          device="$(mount | awk -v mp="$(cd work/os && pwd)" '$3 == mp {print $1}')"
-          echo "container device: $device"
-          diskutil apfs resizeContainer "$device" 0
+          attachment="$(hdiutil attach work/os-rw.dmg -mountpoint work/os -nobrowse)"
+          echo "$attachment"
+          whole="$(echo "$attachment" | awk '$2 == "GUID_partition_scheme" {print $1}' | head -1)"
+          volume="$(echo "$attachment" | awk '$2 == "Apple_APFS" {print $1}' | head -1)"
+          echo "whole=$whole volume=$volume"
+          # hdiutil resize only grew the image file; carry the growth into the GPT partition and
+          # then into the APFS container before writing the cache.
+          diskutil resizeVolume "$whole" 0
+          diskutil apfs resizeContainer "$volume" 0 || true
+          df -h work/os
           echo "=== caches before ==="
           ls -la work/os/System/Library/Caches/
-          df -h work/os
           cp -R work/dyld work/os/System/Library/Caches/
           echo "=== caches after ==="
           ls -la work/os/System/Library/Caches/
