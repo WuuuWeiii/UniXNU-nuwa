@@ -27,10 +27,10 @@ index 94243c9..bf0715f 100644
  }
 diff --git a/bsd/kern/native_console_log.c b/bsd/kern/native_console_log.c
 new file mode 100644
-index 0000000..135d431
+index 0000000..e607c65
 --- /dev/null
 +++ b/bsd/kern/native_console_log.c
-@@ -0,0 +1,109 @@
+@@ -0,0 +1,110 @@
 +/*
 + * Persistent console log: a 4 MiB ring in the console layer is flushed once a second
 + * to the tail of the root device, so a boot log survives a panic and can be pulled
@@ -50,7 +50,6 @@ index 0000000..135d431
 +#include <mach/mach_types.h>
 +#include <kern/thread.h>
 +#include <kern/clock.h>
-+#include <kern/kalloc.h>
 +#include <libkern/libkern.h>
 +
 +#define CONSOLE_LOG_BYTES   (4u << 20)
@@ -68,6 +67,8 @@ index 0000000..135d431
 +extern void IOSleep(int millis);
 +
 +static uint64_t native_console_log_flushed;
++
++void native_console_log_start(void);
 +
 +static int
 +native_console_log_write(vnode_t devvp, off_t offset, caddr_t data, size_t size)
@@ -95,7 +96,7 @@ index 0000000..135d431
 +		printf("native-console-log: cannot open the root device\n");
 +		return;
 +	}
-+	block = (char *)kalloc(CONSOLE_LOG_BLOCK);
++	block = (char *)_MALLOC(CONSOLE_LOG_BLOCK, M_TEMP, M_WAITOK);
 +	if (block == NULL) {
 +		return;
 +	}
@@ -107,7 +108,7 @@ index 0000000..135d431
 +			continue;
 +		}
 +		{
-+			char *header = (char *)kalloc(CONSOLE_LOG_HEADER);
++			char *header = (char *)_MALLOC(CONSOLE_LOG_HEADER, M_TEMP, M_WAITOK);
 +			uint32_t version = 1;
 +			uint32_t ring = CONSOLE_LOG_BYTES;
 +			if (header != NULL) {
@@ -118,7 +119,7 @@ index 0000000..135d431
 +				memcpy(header + 16, &total, 8);
 +				memcpy(header + 24, &native_console_log_flushed, 8);
 +				native_console_log_write(devvp, CONSOLE_LOG_TAIL, header, CONSOLE_LOG_HEADER);
-+				kfree(header, CONSOLE_LOG_HEADER);
++				_FREE(header, M_TEMP);
 +			}
 +		}
 +		for (uint32_t offset = 0; offset < CONSOLE_LOG_BYTES; offset += CONSOLE_LOG_BLOCK) {
