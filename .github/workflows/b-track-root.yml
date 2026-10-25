@@ -1,0 +1,70 @@
+name: b-track-root
+
+# Build the B-track iOS root: one case-sensitive journaled HFS+ image (16 GiB) holding the
+# iPhone10,3 16.7.16 OS volume plus both cryptexes, with the dyld shared cache hard-linked in
+# and the SWEET bring-up tweaks applied. This is what replaces the Apple APFS root entirely,
+# which is why the root-auth and dyld-cache problems disappear instead of being patched around.
+on:
+  workflow_dispatch:
+    inputs:
+      ipsw_url:
+        description: iPhone10,3 16.7.16 IPSW URL
+        default: "https://updates.cdn-apple.com/2025FallFCS/fullrestores/122-77006/1158E502-D76D-4226-AA06-ED5E30CD1111/iPhone10,3,iPhone10,6_16.7.16_20H392_Restore.ipsw"
+      root_size:
+        description: HFS+ image size
+        default: "16G"
+
+jobs:
+  root:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install the HFS / APFS userspace tools
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq apfs-fuse hfsprogs rsync
+          apfs-fuse --help 2>&1 | head -2 || true
+          mkfs.hfsplus -V 2>&1 | head -2 || true
+
+      - name: Download the IPSW
+        run: |
+          curl -L --fail -o ipsw.zip "${{ inputs.ipsw_url }}"
+          unzip -q ipsw.zip '*/087-86698-044.dmg' '*/087-86593-047.dmg' '*/087-86715-047.dmg'
+          rm -f ipsw.zip
+          find . -name '*.dmg' | sort
+          df -h /
+
+      - name: Build the HFS+ root image
+        run: |
+          os=$(find . -name '087-86698-044.dmg' -print -quit)
+          sysos=$(find . -name '087-86593-047.dmg' -print -quit)
+          appos=$(find . -name '087-86715-047.dmg' -print -quit)
+          test -n "$os" -a -n "$sysos" -a -n "$appos"
+          sudo bash tools/mkiosroot.sh "$os" "$sysos" "$appos" ios16-root.img "${{ inputs.root_size }}"
+          sudo fsck.hfsplus -f -y ios16-root.img | tail -3 || true
+          ls -l ios16-root.img
+          df -h /
+
+      - name: Apply the bring-up tweaks
+        run: |
+          mkdir -p mnt
+          sudo mount -t hfsplus -o loop,force ios16-root.img mnt
+          sudo python3 tools/sweet-root-tweaks.py mnt
+          sudo umount mnt
+          echo "=== tweaks applied ==="
+
+      - name: Pack the image
+        run: |
+          split -b 1800M -d -a 2 ios16-root.img ios16-root.img.part
+          ls -l ios16-root.img.part*
+          shasum -a 256 ios16-root.img ios16-root.img.part* | tee SHA256SUMS
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: b-track-root
+          path: |
+            ios16-root.img.part*
+            SHA256SUMS
+          if-no-files-found: error
