@@ -117,14 +117,17 @@ jobs:
           dd if="/dev/r$(basename "$dev")" of=ios16-root.raw bs=1m
           hdiutil detach "$dev"
           ls -l ios16-root.raw
-          split -b 1800m -d -a 2 ios16-root.raw ios16-root.raw.part
-          ls -l ios16-root.raw.part*
-          shasum -a 256 ios16-root.raw ios16-root.raw.part* | tee SHA256SUMS
+          # The runner has no room for raw + split copies; the HFS+ tail is mostly empty, so
+          # a single compressed artifact is both smaller and safer.
+          rm -f ios16-root.dmg
+          gzip -1 ios16-root.raw
+          ls -l ios16-root.raw.gz
+          shasum -a 256 ios16-root.raw.gz | tee SHA256SUMS
 
       - uses: actions/upload-artifact@v4
         with:
           name: b-track-root
           path: |
-            ios16-root.img.part*
+            ios16-root.raw.gz
             SHA256SUMS
           if-no-files-found: error
