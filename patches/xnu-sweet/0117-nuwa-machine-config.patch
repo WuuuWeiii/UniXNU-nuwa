@@ -66,10 +66,10 @@ index c7d274f..882f747 100644
  # Headers installed into System.framework/PrivateHeaders (userspace internal SDK only).
 diff --git a/pexpert/pexpert/arm64/NUWA.h b/pexpert/pexpert/arm64/NUWA.h
 new file mode 100644
-index 0000000..cafb079
+index 0000000..b620685
 --- /dev/null
 +++ b/pexpert/pexpert/arm64/NUWA.h
-@@ -0,0 +1,76 @@
+@@ -0,0 +1,79 @@
 +/*
 + * Board config for the Xiaomi 13 Pro ("nuwa", Qualcomm SM8550): Cortex-X3 +
 + * Cortex-A715 + Cortex-A510, ARMv9 with no pointer authentication.
@@ -88,6 +88,9 @@ index 0000000..cafb079
 +
 +#define SWEET                     1
 +#define NUWA                      1
++
++/* Eight cores: one X3 cluster plus A715/A510; cpus=N is clamped here. */
++#define SWEET_SMP_MAX_CPUS         8
 +
 +#define ARM_ARCH_TIMER
 +#define __ARM_ARCH__              8
