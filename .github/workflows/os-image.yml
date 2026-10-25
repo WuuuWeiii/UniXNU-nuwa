@@ -1,0 +1,78 @@
+name: "iOS system image: dyld shared cache into the OS volume"
+
+# The dyld shared cache of a real iOS 16 root lives on the SystemOS (Cryptex) volume, not on the
+# OS volume: a byte scan of both restore images finds 0 hits of "com.apple.dyld" in the OS volume
+# and 60 in SystemOS. Mounting SystemOS from the kernel needs a devfs node that never exists at
+# launchd time, so this job takes the userland route instead: mount both volumes on macOS, copy
+# the cache into the OS volume, and ship the OS volume with the cache already in place.
+on:
+  workflow_dispatch:
+    inputs:
+      ipsw_url:
+        description: "IPSW URL of the donor build"
+        required: true
+        default: "https://updates.cdn-apple.com/2025SpringFCS/fullrestores/122-77166/DCA6CFE8-90E9-4B92-880D-3DE171798E40/iPad_Pro_HFR_17.7.11_21H461_Restore.ipsw"
+
+jobs:
+  os-image:
+    runs-on: macos-15
+    steps:
+      - name: Check the runner disk budget
+        run: df -h /
+
+      - name: Download the IPSW
+        run: |
+          curl -L --fail -o ipsw.zip "${{ inputs.ipsw_url }}"
+          ls -l ipsw.zip
+          unzip -q ipsw.zip -d ipsw
+          rm -f ipsw.zip
+          find ipsw -name '*.dmg' | head -20
+          df -h /
+
+      - name: Mount the SystemOS volume and copy the dyld cache
+        run: |
+          systemos="$(find ipsw -name '087-86593-047.dmg' -print -quit)"
+          test -n "$systemos" || { echo "::error::SystemOS image not found in the IPSW"; exit 1; }
+          mkdir -p work/systemos
+          hdiutil attach "$systemos" -mountpoint work/systemos -nobrowse -readonly
+          echo "=== caches on SystemOS ==="
+          ls -la work/systemos/System/Library/Caches/ || true
+          test -d work/systemos/System/Library/Caches/com.apple.dyld || {
+            echo "::error::com.apple.dyld is not on the SystemOS volume"; exit 1; }
+          cp -R work/systemos/System/Library/Caches/com.apple.dyld work/dyld
+          du -sh work/dyld
+          hdiutil detach work/systemos
+          # The cache is extracted; drop the SystemOS image so the runner disk budget holds.
+          rm -f "$systemos"
+
+      - name: Convert the OS volume to read-write
+        run: |
+          os="$(find ipsw -name '087-86698-044.dmg' -print -quit)"
+          test -n "$os" || { echo "::error::OS image not found in the IPSW"; exit 1; }
+          hdiutil convert "$os" -format UDRW -o work/os-rw.dmg
+          ls -l work/os-rw.dmg
+
+      - name: Insert the cache into the OS volume
+        run: |
+          mkdir -p work/os
+          hdiutil attach work/os-rw.dmg -mountpoint work/os -nobrowse
+          echo "=== caches before ==="
+          ls -la work/os/System/Library/Caches/
+          cp -R work/dyld work/os/System/Library/Caches/
+          echo "=== caches after ==="
+          ls -la work/os/System/Library/Caches/
+          du -sh work/os/System/Library/Caches/com.apple.dyld
+          hdiutil detach work/os
+
+      - name: Export the modified OS image
+        run: |
+          hdiutil convert work/os-rw.dmg -format UDZO -o work/os-with-cache.dmg
+          ls -l work/os-with-cache.dmg
+          shasum -a 256 work/os-with-cache.dmg
+
+      - name: Upload the modified OS image
+        uses: actions/upload-artifact@v4
+        with:
+          name: os-with-dyld-cache
+          path: work/os-with-cache.dmg
+          if-no-files-found: error
