@@ -408,9 +408,9 @@ def main():
         while end < len(blob) and blob[end] == 0:
             end += 1
         va = vmaddr + start
-        # The cave must sit within the AArch64 b-instruction reach (+/-128 MiB) of the patch
-        # sites, and those live a little after the entry point, so keep a tighter window.
-        if abs(va - ENTRY_VA) < 0x3000000:
+        # The same cave serves the entry probes and the panic() hook, so it has to sit within the
+        # AArch64 b-instruction reach (+/-128 MiB) of BOTH. Keep a safety margin under that.
+        if abs(va - ENTRY_VA) < 0x6000000 and abs(va - PANIC_VA) < 0x6000000:
             candidates.append((end - start, va))
     candidates.sort(reverse=True)
     chosen = None
