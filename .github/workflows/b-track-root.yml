@@ -29,11 +29,17 @@ jobs:
           find . -name '*.dmg' | sort
           df -h /
 
-      - name: Create the HFS+ image
+      - name: Create and format the HFS+ image
         run: |
           size="${{ inputs.root_size }}"
-          dd if=/dev/zero of=ios16-root.img bs=1m count="$size"
-          newfs_hfs -v iOSRoot -s -J -b 4096 ios16-root.img
+          # newfs_hfs wants a device, not a plain file: build an empty image, format the device
+          # behind it, then mount the image normally.
+          hdiutil create -size "${size}m" -type UDIF -volname iOSRoot ios16-root.img
+          attach="$(hdiutil attach -nomount ios16-root.img)"
+          echo "$attach"
+          dev="$(echo "$attach" | awk '{print $1}' | head -1)"
+          newfs_hfs -v iOSRoot -s -J -b 4096 "/dev/r$(basename "$dev")"
+          hdiutil detach "$dev"
           mkdir -p mnt
           hdiutil attach ios16-root.img -mountpoint mnt -nobrowse
           df -h mnt
@@ -110,9 +116,15 @@ jobs:
           hdiutil detach mnt-appos || true
           hdiutil detach mnt
           sync
-          split -b 1800m -d -a 2 ios16-root.img ios16-root.img.part
-          ls -l ios16-root.img.part*
-          shasum -a 256 ios16-root.img ios16-root.img.part* | tee SHA256SUMS
+          # Export the plain HFS+ payload (no UDIF trailer): read the backing device directly.
+          attach="$(hdiutil attach -nomount ios16-root.img)"
+          dev="$(echo "$attach" | awk '{print $1}' | head -1)"
+          dd if="/dev/r$(basename "$dev")" of=ios16-root.raw bs=1m
+          hdiutil detach "$dev"
+          ls -l ios16-root.raw
+          split -b 1800m -d -a 2 ios16-root.raw ios16-root.raw.part
+          ls -l ios16-root.raw.part*
+          shasum -a 256 ios16-root.raw ios16-root.raw.part* | tee SHA256SUMS
 
       - uses: actions/upload-artifact@v4
         with:
