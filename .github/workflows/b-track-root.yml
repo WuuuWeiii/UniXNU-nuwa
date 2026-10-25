@@ -1,9 +1,9 @@
 name: b-track-root
 
-# Build the B-track iOS root: one case-sensitive journaled HFS+ image (16 GiB) holding the
-# iPhone10,3 16.7.16 OS volume plus both cryptexes, with the dyld shared cache hard-linked in
-# and the SWEET bring-up tweaks applied. This is what replaces the Apple APFS root entirely,
-# which is why the root-auth and dyld-cache problems disappear instead of being patched around.
+# Build the B-track iOS root on macOS, where APFS and HFS+ are native: hdiutil attaches the
+# three IPSW volumes and a plain HFS+ image is formatted with newfs_hfs. Same result as
+# ios-sweet's Linux mkiosroot.sh (one case-sensitive journaled HFS+ volume holding the OS root,
+# both cryptexes and the dyld shared cache hard-linked where dyld looks), without apfs-fuse.
 on:
   workflow_dispatch:
     inputs:
@@ -11,33 +11,15 @@ on:
         description: iPhone10,3 16.7.16 IPSW URL
         default: "https://updates.cdn-apple.com/2025FallFCS/fullrestores/122-77006/1158E502-D76D-4226-AA06-ED5E30CD1111/iPhone10,3,iPhone10,6_16.7.16_20H392_Restore.ipsw"
       root_size:
-        description: HFS+ image size
-        default: "16G"
+        description: HFS+ image size in MiB
+        default: "16384"
 
 jobs:
   root:
-    runs-on: ubuntu-latest
+    runs-on: macos-15
     timeout-minutes: 180
     steps:
       - uses: actions/checkout@v4
-
-      - name: Install the HFS / APFS userspace tools
-        run: |
-          sudo apt-get update -qq
-          # hfsprogs/rsync are in the archive; apfs-fuse is not, build it from source.
-          sudo apt-get install -y -qq hfsprogs rsync cmake g++ libfuse3-dev libattr1-dev zlib1g-dev libbz2-dev
-          git clone -q --depth 1 https://github.com/sgan81/apfs-fuse.git apfs-fuse-src
-          cd apfs-fuse-src
-          git -C . submodule update -q --init --depth 1
-          mkdir -p build && cd build
-          # apfs-fuse declares cmake_minimum_required(3.0), which CMake 4 refuses, and its
-          # old-style C++ trips newer g++ diagnostics; build it permissively.
-          cmake -DCMAKE_BUILD_TYPE=Release -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
-            -DCMAKE_CXX_FLAGS=-fpermissive .. >/dev/null
-          make -j"$(nproc)" >/dev/null
-          sudo make install >/dev/null
-          apfs-fuse 2>&1 | head -2 || true
-          mkfs.hfsplus -V 2>&1 | head -2 || true
 
       - name: Download the IPSW
         run: |
@@ -47,28 +29,88 @@ jobs:
           find . -name '*.dmg' | sort
           df -h /
 
-      - name: Build the HFS+ root image
+      - name: Create the HFS+ image
         run: |
-          os=$(find . -name '087-86698-044.dmg' -print -quit)
-          sysos=$(find . -name '087-86593-047.dmg' -print -quit)
-          appos=$(find . -name '087-86715-047.dmg' -print -quit)
-          test -n "$os" -a -n "$sysos" -a -n "$appos"
-          sudo bash tools/mkiosroot.sh "$os" "$sysos" "$appos" ios16-root.img "${{ inputs.root_size }}"
-          sudo fsck.hfsplus -f -y ios16-root.img | tail -3 || true
-          ls -l ios16-root.img
-          df -h /
+          size="${{ inputs.root_size }}"
+          dd if=/dev/zero of=ios16-root.img bs=1m count="$size"
+          newfs_hfs -v iOSRoot -s -J -b 4096 ios16-root.img
+          mkdir -p mnt
+          hdiutil attach ios16-root.img -mountpoint mnt -nobrowse
+          df -h mnt
+
+      - name: Mount the IPSW volumes
+        run: |
+          os="$(find . -name '087-86698-044.dmg' -print -quit)"
+          sysos="$(find . -name '087-86593-047.dmg' -print -quit)"
+          appos="$(find . -name '087-86715-047.dmg' -print -quit)"
+          mkdir -p mnt-os mnt-sysos mnt-appos
+          hdiutil attach "$os" -mountpoint mnt-os -nobrowse -readonly
+          hdiutil attach "$sysos" -mountpoint mnt-sysos -nobrowse -readonly
+          hdiutil attach "$appos" -mountpoint mnt-appos -nobrowse -readonly
+          echo "os:    $(ls mnt-os | head -3 | tr '\n' ' ')"
+          echo "sysos: $(ls mnt-sysos | head -3 | tr '\n' ' ')"
+          echo "appos: $(ls mnt-appos | head -3 | tr '\n' ' ')"
+          df -h mnt-os mnt-sysos mnt-appos
+
+      - name: Populate the root
+        run: |
+          # Case-sensitive HFS+ copy preserving owners, modes, symlinks and hard links.
+          sudo rsync -aH --numeric-ids mnt-os/ mnt/
+          sudo mkdir -p mnt/private/preboot/Cryptexes/OS mnt/private/preboot/Cryptexes/App
+          sudo rsync -aH --numeric-ids mnt-sysos/ mnt/private/preboot/Cryptexes/OS/
+          sudo rsync -aH --numeric-ids mnt-appos/ mnt/private/preboot/Cryptexes/App/
+
+          # dyld's ignition-level-1 location: hard links to the cryptex cache, no extra space.
+          dsc=mnt/private/preboot/Cryptexes/OS/System/Library/Caches/com.apple.dyld
+          sudo mkdir -p mnt/System/Library/Caches/com.apple.dyld
+          for f in "$dsc"/*; do
+            sudo ln "$f" "mnt/System/Library/Caches/com.apple.dyld/${f##*/}"
+          done
+
+          # Cryptex files with no counterpart in the OS root (libobjc-trampolines etc).
+          for cryptex in OS App; do
+            base="mnt/private/preboot/Cryptexes/$cryptex"
+            (cd "$base" && sudo find . -type f ! -path './System/Library/Caches/com.apple.dyld/*') |
+            while IFS= read -r f; do
+              f="${f#./}"
+              if ! sudo test -e "mnt/$f"; then
+                sudo mkdir -p "mnt/$(dirname "$f")"
+                src="$base/$f"
+                if sudo test -L "$src"; then sudo cp -P "$src" "mnt/$f"; else sudo ln "$src" "mnt/$f"; fi
+              fi
+            done
+          done
+          sudo du -sh mnt
+          sudo df -h mnt
+
+      - name: Log directories and system keybag
+        run: |
+          db=mnt/private/var/db
+          sudo install -d -o 272 -g 272 -m 0751 "$db/diagnostics"
+          sudo install -d -o 272 -g 272 -m 0755 "$db/uuidtext" "$db/diagnostics/timesync"
+          for d in diagnostics uuidtext diagnostics/timesync; do
+            sudo install -o 272 -g 272 -m 0644 /dev/null "$db/$d/.migrated"
+          done
+          sudo install -d -m 0700 -o 0 -g 0 mnt/private/var/keybags
+          printf '%s\n' '<?xml version="1.0" encoding="UTF-8"?>' \
+            '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">' \
+            '<plist version="1.0"><dict><key>KeyBagKeys</key><data>U1dFRVQ=</data></dict></plist>' |
+            sudo tee mnt/private/var/keybags/systembag.kb >/dev/null
+          sudo chmod 0600 mnt/private/var/keybags/systembag.kb
 
       - name: Apply the bring-up tweaks
         run: |
-          mkdir -p mnt
-          sudo mount -t hfsplus -o loop,force ios16-root.img mnt
           sudo python3 tools/sweet-root-tweaks.py mnt
-          sudo umount mnt
-          echo "=== tweaks applied ==="
 
-      - name: Pack the image
+      - name: Detach and pack
         run: |
-          split -b 1800M -d -a 2 ios16-root.img ios16-root.img.part
+          sudo chown -R "$(id -u):$(id -g)" mnt 2>/dev/null || true
+          hdiutil detach mnt-os || true
+          hdiutil detach mnt-sysos || true
+          hdiutil detach mnt-appos || true
+          hdiutil detach mnt
+          sync
+          split -b 1800m -d -a 2 ios16-root.img ios16-root.img.part
           ls -l ios16-root.img.part*
           shasum -a 256 ios16-root.img ios16-root.img.part* | tee SHA256SUMS
 
