@@ -27,7 +27,7 @@ index 94243c9..bf0715f 100644
  }
 diff --git a/bsd/kern/native_console_log.c b/bsd/kern/native_console_log.c
 new file mode 100644
-index 0000000..d9edc00
+index 0000000..621bf9a
 --- /dev/null
 +++ b/bsd/kern/native_console_log.c
 @@ -0,0 +1,123 @@
@@ -98,7 +98,7 @@ index 0000000..d9edc00
 +	if (bp == NULL) {
 +		return EIO;
 +	}
-+	log_copy(buf_dataptr(bp), data, size);
++	log_copy((void *)buf_dataptr(bp), data, size);
 +	buf_strategy(devvp, bp);
 +	buf_brelse(bp);
 +	return 0;
