@@ -24,7 +24,7 @@ jobs:
       - name: Download the IPSW
         run: |
           curl -L --fail -o ipsw.zip "${{ inputs.ipsw_url }}"
-          unzip -q ipsw.zip '*/087-86698-044.dmg' '*/087-86593-047.dmg' '*/087-86715-047.dmg'
+          unzip -q ipsw.zip '*087-86698-044.dmg' '*087-86593-047.dmg' '*087-86715-047.dmg'
           rm -f ipsw.zip
           find . -name '*.dmg' | sort
           df -h /
