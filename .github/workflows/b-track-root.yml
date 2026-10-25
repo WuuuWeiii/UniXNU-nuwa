@@ -30,7 +30,8 @@ jobs:
           cd apfs-fuse-src
           git -C . submodule update -q --init --depth 1
           mkdir -p build && cd build
-          cmake -DCMAKE_BUILD_TYPE=Release .. >/dev/null
+          # apfs-fuse declares cmake_minimum_required(3.0), which CMake 4 refuses.
+          cmake -DCMAKE_BUILD_TYPE=Release -DCMAKE_POLICY_VERSION_MINIMUM=3.5 .. >/dev/null
           make -j"$(nproc)" >/dev/null
           sudo make install >/dev/null
           apfs-fuse 2>&1 | head -2 || true
