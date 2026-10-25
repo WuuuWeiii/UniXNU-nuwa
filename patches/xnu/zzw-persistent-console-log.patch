@@ -11,15 +11,17 @@ index 19b4065..60b0a13 100644
  bsd/kern/kern_subr.c			standard
  bsd/kern/kern_synch.c			standard
 diff --git a/bsd/kern/bsd_init.c b/bsd/kern/bsd_init.c
-index 94243c9..bf0715f 100644
+index 94243c9..c104b3f 100644
 --- a/bsd/kern/bsd_init.c
 +++ b/bsd/kern/bsd_init.c
-@@ -1283,6 +1292,10 @@ bsdinit_task(void)
+@@ -1283,6 +1292,12 @@ bsdinit_task(void)
  
  	bsd_init_kprintf("bsd_do_post - done");
  
 +	{
 +		extern void native_console_log_start(void);
++		extern volatile boolean_t native_console_log_armed;
++		native_console_log_armed = TRUE;
 +		native_console_log_start();
 +	}
  	load_init_program(p);
@@ -154,18 +156,6 @@ index 0000000..621bf9a
 +		thread_deallocate(thread);
 +	}
 +}
-diff --git a/osfmk/arm/arm_init.c b/osfmk/arm/arm_init.c
-index 7187c15..c2e6ccf 100644
---- a/osfmk/arm/arm_init.c
-+++ b/osfmk/arm/arm_init.c
-@@ -370,1 +370,6 @@ arm_init(
--	PE_init_platform(FALSE, args); /* Get platform expert set up */
-+	PE_init_platform(FALSE, args); /* Get platform expert set up */
-+	{
-+		/* MMU is up and the kernel mapping is real: the console ring is safe from here on. */
-+		extern volatile boolean_t native_console_log_armed;
-+		native_console_log_armed = TRUE;
-+	}
 diff --git a/osfmk/console/serial_console.c b/osfmk/console/serial_console.c
 index 715c545..5d0134b 100644
 --- a/osfmk/console/serial_console.c
