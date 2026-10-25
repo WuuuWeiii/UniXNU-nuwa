@@ -57,6 +57,14 @@ jobs:
           # over 2 GiB, so grow the image before touching the container.
           hdiutil resize -size 10g work/os-rw.dmg
           ls -l work/os-rw.dmg
+          # hdiutil only grows the file: the backup GPT header still sits at the old end of the
+          # disk, so the partition cannot grow until the partition map is recovered.
+          attach_nomount="$(hdiutil attach work/os-rw.dmg -nomount)"
+          echo "$attach_nomount"
+          disk="$(echo "$attach_nomount" | awk '{print $1}' | head -1)"
+          sudo gpt recover "$disk"
+          hdiutil detach "$disk"
+          ls -l work/os-rw.dmg
 
       - name: Insert the cache into the OS volume
         run: |
