@@ -425,7 +425,9 @@ def main():
             break
     if chosen is None:
         raise SystemExit(f'no {need:#x}-byte zero run within branch range of the entry')
-    CAVES = {stage: chosen[0] + (stage - 1) * CAVE_SIZE for stage in (1, 2, 3, 4)}
+    # b-instructions are 4-byte aligned: the zero run can start mid-word, so align the base.
+    base = chosen[0] & ~3
+    CAVES = {stage: base + (stage - 1) * CAVE_SIZE for stage in (1, 2, 3, 4)}
     PANIC_CAVE_END = chosen[0] + chosen[1]
     # (site, cave stage, symbols the cave is linked with)
     sites = [(ENTRY_VA, 1, {'target': START_FIRST_CPU}),
