@@ -48,19 +48,27 @@ jobs:
           # The cache is extracted; drop the SystemOS image so the runner disk budget holds.
           rm -f "$systemos"
 
-      - name: Convert the OS volume to read-write
+      - name: Convert the OS volume to read-write and grow it
         run: |
           os="$(find ipsw -name '087-86698-044.dmg' -print -quit)"
           test -n "$os" || { echo "::error::OS image not found in the IPSW"; exit 1; }
           hdiutil convert "$os" -format UDRW -o work/os-rw.dmg
+          # The OS volume is 93% full (about 600 MiB free) and the dyld shared cache needs well
+          # over 2 GiB, so grow the image before touching the container.
+          hdiutil resize -size 10g work/os-rw.dmg
           ls -l work/os-rw.dmg
 
       - name: Insert the cache into the OS volume
         run: |
           mkdir -p work/os
           hdiutil attach work/os-rw.dmg -mountpoint work/os -nobrowse
+          # Grow the APFS container into the space hdiutil resize just added.
+          device="$(mount | awk -v mp="$(cd work/os && pwd)" '$3 == mp {print $1}')"
+          echo "container device: $device"
+          diskutil apfs resizeContainer "$device" 0
           echo "=== caches before ==="
           ls -la work/os/System/Library/Caches/
+          df -h work/os
           cp -R work/dyld work/os/System/Library/Caches/
           echo "=== caches after ==="
           ls -la work/os/System/Library/Caches/
