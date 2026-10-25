@@ -158,7 +158,7 @@ diff --git a/osfmk/arm/arm_init.c b/osfmk/arm/arm_init.c
 index 7187c15..c2e6ccf 100644
 --- a/osfmk/arm/arm_init.c
 +++ b/osfmk/arm/arm_init.c
-@@ -370,6 +370,11 @@ arm_init(
+@@ -370,4 +370,9 @@ arm_init(
  	PE_init_platform(FALSE, args); /* Get platform expert set up */
 +	{
 +		/* MMU is up and the kernel mapping is real: the console ring is safe from here on. */
