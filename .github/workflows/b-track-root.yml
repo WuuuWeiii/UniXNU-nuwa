@@ -25,13 +25,15 @@ jobs:
         run: |
           sudo apt-get update -qq
           # hfsprogs/rsync are in the archive; apfs-fuse is not, build it from source.
-          sudo apt-get install -y -qq hfsprogs rsync cmake g++ libfuse3-dev libattr1-dev zlib1g-dev
+          sudo apt-get install -y -qq hfsprogs rsync cmake g++ libfuse3-dev libattr1-dev zlib1g-dev libbz2-dev
           git clone -q --depth 1 https://github.com/sgan81/apfs-fuse.git apfs-fuse-src
           cd apfs-fuse-src
           git -C . submodule update -q --init --depth 1
           mkdir -p build && cd build
-          # apfs-fuse declares cmake_minimum_required(3.0), which CMake 4 refuses.
-          cmake -DCMAKE_BUILD_TYPE=Release -DCMAKE_POLICY_VERSION_MINIMUM=3.5 .. >/dev/null
+          # apfs-fuse declares cmake_minimum_required(3.0), which CMake 4 refuses, and its
+          # old-style C++ trips newer g++ diagnostics; build it permissively.
+          cmake -DCMAKE_BUILD_TYPE=Release -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
+            -DCMAKE_CXX_FLAGS=-fpermissive .. >/dev/null
           make -j"$(nproc)" >/dev/null
           sudo make install >/dev/null
           apfs-fuse 2>&1 | head -2 || true
