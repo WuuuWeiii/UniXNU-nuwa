@@ -1,70 +1,84 @@
 diff --git a/osfmk/arm64/start.s b/osfmk/arm64/start.s
 --- a/osfmk/arm64/start.s
 +++ b/osfmk/arm64/start.s
-@@ -455,7 +455,37 @@
+@@ -455,7 +455,30 @@
  	.align 2
  	.globl EXT(start_first_cpu)
  LEXT(start_first_cpu)
  
 +/*
-+ * Bring-up breadcrumb for nuwa. sweet_early_mark() only starts once arm_init
-+ * runs, so a kernel that dies inside start.s leaves nothing behind -- which is
-+ * exactly what we see (the boot manager reads back no stage bars at all). Each
-+ * checkpoint stores its number at 0x8d3003010: the last page of the 304 MiB
-+ * window DarwinBoot allocates (0x8c0004000 + 0x13000000), so it is DRAM the
-+ * kernel never occupies. With the MMU off that address is physical; once the
-+ * bootstrap V=P map is live it is identity mapped as well, and the address is
-+ * inside the window either way.
++ * nuwa bring-up breadcrumbs. sweet_early_mark() only starts once arm_init
++ * runs, so a kernel that dies inside start.s leaves nothing behind: no bars,
++ * no text, and the menu that comes back after the reset has nothing to show.
++ * Each checkpoint writes its number to 0x8d3003010, one page below the end of
++ * the 304 MiB window DarwinBoot hands us (0x8c0004000 + 0x13000000), i.e. DRAM
++ * the kernel itself never occupies; the boot manager reads it back.
 + *
-+ * This must be an assembler .macro, not a cpp #define: cpp folds the whole
-+ * body onto one line, and in AArch64 assembly ';' starts a comment, so every
-+ * statement after the first would silently vanish.
++ * These blocks are spelled out inline on purpose. A cpp #define cannot work
++ * here: cpp folds the body onto one line, and in AArch64 assembly a semicolon
++ * begins a comment, so everything after the first statement disappears.
 + */
 +#if defined(SWEET)
-+.macro NUWA_BREADCRUMB n
++	/* nuwa bring-up breadcrumb: record checkpoint 1 in DRAM. */
 +	MOV64	x9, 0x8d3003000
 +	MOV64	x10, 0x4e4f5445
 +	str		x10, [x9]
 +	MOV64	x9, 0x8d3003010
-+	mov		w10, #\n
++	mov		w10, #1
 +	str		w10, [x9]
 +	dsb		sy
-+.endmacro
-+#endif
-+
-+#if defined(SWEET)
-+	NUWA_BREADCRUMB 1
 +#endif
 +
  	// Unlock the core for debugging
  	msr		OSLAR_EL1, xzr
  	msr		DAIFSet, #(DAIFSC_ALL)				// Disable all interrupts
-@@ -477,3 +504,7 @@ LEXT(start_first_cpu)
+@@ -477,3 +502,14 @@ LEXT(start_first_cpu)
  	ldr		x26, [x20, BA_BOOT_FLAGS]			// Get the kernel boot flags
  
 +#if defined(SWEET)
-+	NUWA_BREADCRUMB 3
++	/* nuwa bring-up breadcrumb: record checkpoint 3 in DRAM. */
++	MOV64	x9, 0x8d3003000
++	MOV64	x10, 0x4e4f5445
++	str		x10, [x9]
++	MOV64	x9, 0x8d3003010
++	mov		w10, #3
++	str		w10, [x9]
++	dsb		sy
 +#endif
 +
  	// Clear the registers that will be used to store the userspace thread pointer and CPU number.
-@@ -648,5 +679,9 @@
+@@ -648,5 +685,16 @@
  	/* Ensure TTEs are visible */
  	dsb		ish
  
  
 +#if defined(SWEET)
-+	NUWA_BREADCRUMB 5
++	/* nuwa bring-up breadcrumb: record checkpoint 5 in DRAM. */
++	MOV64	x9, 0x8d3003000
++	MOV64	x10, 0x4e4f5445
++	str		x10, [x9]
++	MOV64	x9, 0x8d3003010
++	mov		w10, #5
++	str		w10, [x9]
++	dsb		sy
 +#endif
 +
  	b		common_start
-@@ -743,6 +778,10 @@ common_start:
+@@ -743,6 +787,17 @@ common_start:
  	// Enable caches, MMU, ROP and JOP
  	MOV64   x0, SCTLR_EL1_DEFAULT
  	MSR_SCTLR_EL1_X0
  	isb		sy
  
 +#if defined(SWEET)
-+	NUWA_BREADCRUMB 6
++	/* nuwa bring-up breadcrumb: record checkpoint 6 in DRAM. */
++	MOV64	x9, 0x8d3003000
++	MOV64	x10, 0x4e4f5445
++	str		x10, [x9]
++	MOV64	x9, 0x8d3003010
++	mov		w10, #6
++	str		w10, [x9]
++	dsb		sy
 +#endif
 +
  #if !VMAPPLE && !defined(SWEET)
