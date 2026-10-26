@@ -1,0 +1,38 @@
+diff --git a/osfmk/arm64/sweet_early.c b/osfmk/arm64/sweet_early.c
+--- a/osfmk/arm64/sweet_early.c
++++ b/osfmk/arm64/sweet_early.c
+@@ -11,9 +11,15 @@
+ #include <stdint.h>
+ #include <kern/misc_protos.h>
+ 
+-static volatile uint32_t *early_fb = (volatile uint32_t *)(uintptr_t)0x9c000000;
++/*
++ * nuwa (SM8550): framebuffer at 0xB8000000, 1440x3200, 5760-byte rows.
++ * The values this file shipped with (0x9c000000, 1080x2400, 4320) belong
++ * to the Redmi Note 10 Pro, so on nuwa every mark landed in ordinary DRAM
++ * and the panel showed nothing at all.
++ */
++static volatile uint32_t *early_fb = (volatile uint32_t *)(uintptr_t)0xb8000000;
+ #define EARLY_FB early_fb
+-#define EARLY_WIDTH 1080u
+-#define EARLY_HEIGHT 2400u
+-#define EARLY_STRIDE (4320u / 4)
++#define EARLY_WIDTH 1440u
++#define EARLY_HEIGHT 3200u
++#define EARLY_STRIDE (5760u / 4)
+ #define EARLY_SCALE 2u
+diff --git a/osfmk/arm64/start.s b/osfmk/arm64/start.s
+--- a/osfmk/arm64/start.s
++++ b/osfmk/arm64/start.s
+@@ -465,8 +465,8 @@ LEXT(start_first_cpu)
+ 
+ #if defined(SWEET)
+-	/* Stage 0: white 64x32 band, no stack or page tables needed. */
+-	MOV64	x0, (0x9c000000 + 2368 * 4320)
++	/* Stage 0: white 64x32 band on nuwa's panel, no stack or page tables. */
++	MOV64	x0, (0xb8000000 + 3168 * 5760)
+ 	mov		w1, #-1
+ 	mov		x2, #32
+-	mov		x4, #4320
++	mov		x4, #5760
+ Lsweet_mark_row:
