@@ -33,7 +33,9 @@ jobs:
         run: |
           size="${{ inputs.root_size }}"
           # HFSX = case-sensitive HFS+, which is what the iOS root needs; hdiutil formats it.
-          hdiutil create -size "${size}m" -type UDIF -fs HFSX -volname iOSRoot ios16-root.dmg
+          # -layout NONE: a bare HFSX volume with no partition map, which is what
+          # fastboot flash userdata expects (sweet_ufs.c finds the GPT partition itself).
+          hdiutil create -size "${size}m" -type UDIF -fs HFSX -layout NONE -volname iOSRoot ios16-root.dmg
           mkdir -p mnt
           hdiutil attach ios16-root.dmg -mountpoint mnt -nobrowse
           df -h mnt
