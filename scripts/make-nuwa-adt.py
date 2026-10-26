@@ -33,6 +33,15 @@ GIC_REDIST_SIZE = 0x200000
 TIMEBASE = 19200000
 UFS_HC = 0x1d84000
 UFS_HC_SIZE = 0x3000
+# nuwa's boot framebuffer: the ABL leaves the cont_splash_region carved out at
+# 0xB8000000 (0x2B00000) and powers the panel from it; board.toml [bootimg.dtb_node]
+# declares the same region to the stock ABL. The SWEET kernel's fbcon
+# (0003-sweet-framebuffer-serial-console.patch) maps reg and paints kernel output there.
+FB_BASE = 0xB8000000
+FB_SIZE = 0x2B00000
+FB_WIDTH = 1440
+FB_HEIGHT = 3200
+FB_STRIDE = FB_WIDTH * 4
 UFS_PHY = 0x1d80000
 UFS_PHY_SIZE = 0x2000
 
@@ -217,6 +226,19 @@ def main():
         # B-track: bsd/dev/sweet_ufs.c looks up /sweet-ufs and reads reg as the UFS host base.
         *([node('sweet-ufs', [('compatible', b'qcom,ufshc\0'),
                               ('reg', struct.pack('<QQ', UFS_HC, UFS_HC_SIZE))])]
+          if args.iphone_identity else []),
+        # B-track console: pexpert/arm/serial.c fbcon_probe() finds this by name and maps
+        # reg as the framebuffer, so kernel printf lands on the panel instead of nowhere.
+        # It requires stride >= width * 4.
+        *([node('sweet-fbcon', [('reg', struct.pack('<QQ', FB_BASE, FB_SIZE)),
+                                ('width', struct.pack('<I', FB_WIDTH)),
+                                ('height', struct.pack('<I', FB_HEIGHT)),
+                                ('stride', struct.pack('<I', FB_STRIDE))]),
+           # IOMobileFramebuffer.framework counts /arm-io children with this device_type.
+           node('disp0', [('device_type', b'display-subsystem\0'),
+                          ('compatible', b'sweet,display\0'),
+                          ('canvas-width', struct.pack('<I', FB_WIDTH)),
+                          ('canvas-height', struct.pack('<I', FB_HEIGHT))])]
           if args.iphone_identity else []),
     ])
     args.output.parent.mkdir(parents=True, exist_ok=True)

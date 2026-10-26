@@ -163,7 +163,9 @@ root_ramdisk = false
 # 探针已经给出结论（2026-10-23 15:39 真机）：绿条=DarwinBoot、蓝条=内核入口、品红条=MMU 使能前，
 # 之后 5 秒复位 —— 说明内核执行到 MMU 之后才停住。现在把"静默"变成"文字"：panic() 的格式串
 # 直接画在帧缓冲上。地址已按我们内核的符号重算（_panic 0xFFFFFFF00799AD50 / _vinfo 0xFFFFFFF007AEA970）。
-panic_screen = true
+# B track: patch-xnu-entry-probe.py resolves _panic/_vinfo by absolute address and those
+# were computed for xnu-10063. The 8796 kernel reports through fbcon instead.
+panic_screen = false
 # Entry probe (stage bars in the frame buffer). stage 1 = kernel entry with the MMU off (blue band),
 # stage 2 = just before the MMU is on (magenta band); with a reset delay, stage 3 resets via PSCI
 # that many seconds after the MMU is on. Set to 0/absent to skip the probe entirely.
@@ -188,85 +190,29 @@ trust_cache_sha256 = [
 # sheng-* 参数保持原样：第一版跑的是 sheng package 的驱动代码（NativeLegacyDisplay / ShengPlatformPower /
 # 触控等），参数名和实现绑死。等 nuwa 自己的 kit 分歧了再改名，不要提前动。
 kernel_args = [
+  # ---- B track: xnu-8796 (ios-sweet, MIT) on a self-built HFS+ root --------------
+  # The whole A-track argument set (offline-*, sheng-*, native-ufs-*) belongs to the
+  # xnu-10063 kernel and its IOKit drivers; the SWEET kernel ignores or misreads them.
+  # What is left is ios-sweet's own published set, minus the duplicates.
   "-v",
-  # serial=3 is sheng's debug UART. nuwa has no wired console, and a kernel
-  # that probes a missing UART stalls with the screen frozen and no reset.
-  # Leave it out until a console is actually connected.
   "debug=0x14e",
-  "kt_fixed_zones=120",
-  "offline-legacy-register=1",
-  "offline-legacy-gop=1",
-  "offline-legacy-unit-scale=2",
-  "offline-legacy-pm=1",
-  "offline-legacy-validate=1",
-  "offline-legacy-transfer=1",
-  "offline-legacy-cpu-present=1",
-  "offline-hid-home=1",
-  "offline-hid-input=1",
-  "offline-legacy-phase=4",
-  "offline-mobile-graphics-client=1",
-  "offline-mobile-graphics-load=1",
-  "offline-apfs-load=1",
-  "boot-progress=2",
-  "-apfs_shared_datavolume",
-  "offline-key-events=1",
-  # AMFI panics with "AMFI: No PMGR?" at ConfigurationSettings.cpp:235 without the
-  # PMGR integration: it looks the service up during early init and the unchanged
-  # target kernel has no ApplePMGR of its own. Still required with a ramdisk root:
-  # AMFI runs before BSD init, so the PMGR lookup happens regardless of where root lives.
-  "sheng-pmgr=2",
-  # ---- root: the real iOS root on userdata (2026-10-24) --------------------------------
-  # History, so the next round does not re-litigate it: the ramdisk root mounted md0 and reached
-  # load_init_program; the UFS root then published a window, IOBSDNameMatching resolved disk0s1 in
-  # one shot and bsd_init mounted the volume -- the screen showed "rootvp not authenticated after
-  # mounting" (AMFI seal), not a discovery failure. Both proved the lower chain, and both dead-end
-  # without a real Apple root: a hand-made HFSX can never pass FSIOC_KERNEL_ROOTAUTH.
-  # So the root now is the unchanged OS + SystemOS APFS images of the IPSW, published as the two
-  # SHNGROOT windows of the userdata partition (image built by scripts/make-userdata.py; flashing
-  # userdata erases Android -- accepted by the user on 2026-10-24 16:32).
-  # There is deliberately no rootdev= here: two windows are published, their diskXsY names depend
-  # on the publication order (SystemOS first, OS last -- NativeUfs/RootPublication.h), so the root
-  # is named by identity through the APFS volume UUID in [payload.adt] root_match_volume_uuid.
-  # Declare the root as a ramdisk although it is not one, with a one-character twist that matters:
-  #
-  #   bsd_rooted_ramdisk() (bsd_init.c:458) compares with strncmp(dev_path, "md0", 3), a PREFIX
-  #   match, and its true makes the kernel skip FSIOC_KERNEL_ROOTAUTH entirely (bsd_init.c:929).
-  #   IOFindBSDRoot (IOKitBSDInit.cpp:786) and IORamDiskBSDRoot (:1017) instead test
-  #   rdBootVar[0]=='m' && rdBootVar[1]=='d' && rdBootVar[3]==0, i.e. EXACTLY "md0"; a longer
-  #   value falls through, so the root-matching dictionary survives and the UUID match is used.
-  #
-  # "md0" alone is not usable: :786 then releases the root-matching dictionary, looks up md0,
-  # finds no configured RAMDisk and panics "specified root memory device, md0, has not been
-  # configured" (measured 2026-10-24). "md0x" keeps both halves happy: seal skipped, real APFS
-  # root still discovered by UUID. Measured before that: with the real OS/SystemOS APFS windows
-  # the screen showed "rootvp not authenticated after mounting @bsd_init.c:1098", i.e. a genuine
-  # Apple volume does NOT self-seal against this check -- the seal needs Image4 policy this
-  # device cannot satisfy.
-  "rd=md0x",
-  # The dyld shared cache of this root lives on the SystemOS (Cryptex) volume, not on the OS
-  # volume, and dyld only looks under /System/Library/Caches/com.apple.dyld. Measured 2026-10-24:
-  # with the trust cache in place launchd was exec'd and dyld then refused with
-  # "Library not loaded: /usr/lib/libSystem.B.dylib ... (no such file, no dyld cache)".
-  # patches/xnu/zzu-offline-systemos-mount.patch (device repository) mounts that volume read-only
-  # on /System/Cryptexes/OS and hands launchd DYLD_SHARED_CACHE_DIR pointing into it.
-  "offline-systemos-mount=1",
-  # Diagnostic AMFI enforcement off. Measured 2026-10-24: with rd=md0x the kernel exec'd
-  # /sbin/launchd and then SIGKILLed it with "unexpected SIGKILL of launchd with reason --
-  # namespace 9 code 0x8 description none", which this repository's own check-air-nir-native.py:46
-  # classifies as an EXEC security-policy refusal when the process has no trust of its own.
-  # The payload carries no trust cache at all (kernel.yml never passes --trust-cache), so the
-  # refusal is expected; this switch answers "is that the only thing in the way" in one round.
-  # Diagnostic only: it changes the security policy.
-  "amfi_get_out_of_my_way=1",
-  "native-ufs-root=1",
-  # The build carries no signed policy (the --unverified transport), so the publication phase
-  # refuses every window unless this opt-in is present.
-  "native-ufs-root-unverified=1",
-  # The root manifest lives in userdata now: that partition holds the SHNGROOT image
-  # (1 MiB manifest + OS window + SystemOS window).
-  "native-ufs-root-partition=userdata",
-  "armcpu-diagnostics=1",
-  "-no_slto_panic",
+  # Root: bsd/dev/sweet_ufs.c publishes the GPT partition named userdata as ufsroot0
+  # (boot-arg ufsroot= defaults to exactly that), and this image is a bare HFSX volume
+  # inside it, so the root needs no Apple seal and no APFS.
+  "rd=ufsroot0",
+  "ufsrw=1",
+  "rootrw=1",
+  # All eight cores are running: the ADT lists them 0x0..0x700 and /psci is present.
+  "cpus=8",
+  "ignition_level=1",
+  # The dyld shared cache is hardlinked into the root volume and is in no trust cache,
+  # so dyld can only map it when the cache check is relaxed.
+  "launchd_unsecure_cache=1",
+  # The watchdog is not wired for this board yet; a live watchdog resets mid-boot.
+  "wdt=-1",
+  "wdt_test=no_user_checkin",
+  # Keep kernel output on the panel: fbcon_probe() maps /sweet-fbcon from the ADT.
+  "sweetfb_noconsole=0",
 ]
 
 [payload.adt]
@@ -291,8 +237,9 @@ cpu_regs = "0,0x100,0x200,0x300,0x400,0x500,0x600,0x700"
 # ("SydneyUpdate20H392.D22D221OS", APFS role=system, 10 checkpoint copies agree).
 # SystemOS is 96096b28-b6dc-4bc7-9d3a-2632a0fe53f1 ("SydneyUpdate20H392.D22D221SystemCryptex");
 # it is not the root, it mounts under /System/Cryptexes.
-root_match_volume_uuid = "DADD93F8-DBBF-4B17-A1DF-0F11E64172F7"
-ipad_identity = true
+# B track finds the root by BSD device name (rd=ufsroot0); no volume-UUID match.
+# root_match_volume_uuid = "DADD93F8-DBBF-4B17-A1DF-0F11E64172F7"
+iphone_identity = true
 unique_chip_id = "required"          # the platform seed is not stored in any repository
 
 # Image parameters come from the Mu-Silicium device config; [bootimg.image] overrides them.
