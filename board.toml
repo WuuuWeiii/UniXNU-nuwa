@@ -146,6 +146,11 @@ BUILDID_STRING = "nuwa-research"
 # the optional trust cache and Data seed. The loader (DarwinBoot) is part of the firmware volume.
 [payload]
 volume = "NUWAESP"
+# ShengBootMemoryDxe publishes this volume from the boot image ramdisk as a
+# 512-byte-sector BlockIo, and its FindPayload() only accepts a BPB with
+# SectorSize == 512. 4096 (the NativeUfs default) makes the firmware miss the
+# payload and BDS reports "Failed to Find an Operating System!".
+fat_sector_bytes = 512
 # nuwa 的 boot_a 是 192 MiB（vendor_boot 96 / init_boot 8 / dtbo 24，已核实）。boot.img = payload +
 # UEFI FD(3 MiB) + DTB + header ≈ payload + 1.8 MiB，所以 payload 必须 ≤ 190 MiB 才能装进 boot_a
 # （实测 192 MiB payload 打包后 194 MB，fastboot 报 Volume Full）。用 188 MiB 留余量；走 vendor_boot
