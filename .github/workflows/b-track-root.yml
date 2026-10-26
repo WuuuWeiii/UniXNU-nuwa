@@ -120,15 +120,18 @@ jobs:
           hdiutil detach "$dev"
           ls -l ios16-root.raw
           shasum -a 256 ios16-root.raw | tee SHA256SUMS.full
-          # Big single artifacts download badly on slow links: ship 1500 MiB parts instead.
-          split -b 1500m -d -a 2 ios16-root.raw ios16-root.raw.part
-          ls -l ios16-root.raw.part*
-          shasum -a 256 ios16-root.raw* | tee SHA256SUMS
+          # Compress first (the HFS+ tail is mostly empty, ~6 GB) and only then split:
+          # the runner has no room for a 16 GB raw plus 16 GB of parts.
+          rm -f ios16-root.dmg
+          gzip -1 ios16-root.raw
+          split -b 1400m -d -a 2 ios16-root.raw.gz ios16-root.raw.gz.part
+          ls -l ios16-root.raw.gz.part*
+          shasum -a 256 ios16-root.raw.gz.part* | tee SHA256SUMS
 
       - uses: actions/upload-artifact@v4
         with:
           name: b-track-root
           path: |
-            ios16-root.raw.part*
+            ios16-root.raw.gz.part*
             SHA256SUMS
           if-no-files-found: error
