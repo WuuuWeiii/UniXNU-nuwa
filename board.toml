@@ -200,7 +200,10 @@ kernel_args = [
   # xnu-10063 kernel and its IOKit drivers; the SWEET kernel ignores or misreads them.
   # What is left is ios-sweet's own published set, minus the duplicates.
   "-v",
-  "debug=0x14e",
+  # DB_HALT (0x1) is set on top of ios-sweet 0x14e: without it panic() reboots the
+  # device and the bring-up screen is wiped by the next UniXNU menu before anyone can
+  # read it. With it the kernel stops at the panic and keeps the text on the panel.
+  "debug=0x14f",
   # Root: bsd/dev/sweet_ufs.c publishes the GPT partition named userdata as ufsroot0
   # (boot-arg ufsroot= defaults to exactly that), and this image is a bare HFSX volume
   # inside it, so the root needs no Apple seal and no APFS.
