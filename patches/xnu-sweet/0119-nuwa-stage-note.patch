@@ -1,7 +1,7 @@
 diff --git a/osfmk/arm64/sweet_early.c b/osfmk/arm64/sweet_early.c
 --- a/osfmk/arm64/sweet_early.c
 +++ b/osfmk/arm64/sweet_early.c
-@@ -20,6 +20,22 @@
+@@ -20,6 +20,23 @@
  static unsigned int early_row, early_col;
  static unsigned int early_started, early_disabled, early_panicking;
  
@@ -11,11 +11,12 @@ diff --git a/osfmk/arm64/sweet_early.c b/osfmk/arm64/sweet_early.c
 + * the menu, so the bars are gone by the time anyone looks. Record the same
 + * picture as a bitmask in DRAM instead, at an offset inside the kernel window
 + * that the kernel itself never reaches (it needs about 21 MiB of the 304 MiB
-+ * DarwinBoot hands it). DarwinBoot always places the window at 0x8c0004000
++ * DarwinBoot hands it), not the first 16 MiB, which is inside the kernel image
++ * itself. DarwinBoot always places the window at 0x8c0004000
 + * on this device, and the mapping is VA=PA while arm_init runs, so a plain
 + * physical store works. The boot manager reads it back on the next start.
 + */
-+#define EARLY_NOTE_BASE   0x8d0004000ULL
++#define EARLY_NOTE_BASE   0x8d3003000ULL
 +#define EARLY_NOTE_MAGIC  0x4e4f5445ULL /* 'ETON' */
 +#define EARLY_NOTE_STAGES 8u             /* arm_init stages 1..7 fit here */
 +
