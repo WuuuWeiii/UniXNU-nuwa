@@ -1,0 +1,25 @@
+diff --git a/osfmk/arm64/sweet_early.c b/osfmk/arm64/sweet_early.c
+--- a/osfmk/arm64/sweet_early.c
++++ b/osfmk/arm64/sweet_early.c
+@@ -111,8 +111,21 @@
+ 
+ void
+ sweet_early_mark(unsigned int stage, const char *label)
+ {
++	/*
++	 * Before anything else, and without touching a single variable: paint
++	 * the first scanline at the literal address. If the panel turns dark
++	 * blue, sweet_early_mark is running and the earlier silence was a bad
++	 * early_fb value; if it does not, mark is never reached.
++	 */
++		{
++			volatile uint32_t *probe = (volatile uint32_t *)(uintptr_t)0xb8000000u;
++			for (unsigned int n = 0; n < 1440u * 4u; n++) {
++				probe[n] = 0xff1040c0u;
++			}
++			__asm__ volatile("dsb sy" ::: "memory");
++		}
+ 	if (early_disabled || stage > 20) {
+ 		return;
+ 	}
+ 	if ((stage >= 1) && (stage < EARLY_NOTE_STAGES)) {
