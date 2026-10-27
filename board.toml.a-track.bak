@@ -1,0 +1,322 @@
+# Board description of the Xiaomi 13 Pro (nuwa, SM8550), read by the unixnu build driver.
+#
+# 状态：草稿（2026-10-21），尚未编译、未上机。结构照 UniXNU-sheng 抄，经 UniXNU-vermeer（红米 K70，
+# 同为 SM8550 手机）验证过"手机形态只换标识、不动 sheng-* 内核参数"这条路可行。
+# 标记 TODO(必改) 的字段是设备专属值，必须用 nuwa 自己的固件/分区表核对后才能用。
+
+[board]
+name = "nuwa"
+soc = "SM8550"
+description = "Xiaomi 13 Pro"
+# 第一版直接跑 sheng package 的驱动代码（ShengPlatformPower / LegacyDisplayProbe / TouchProbe 等），
+# 这些驱动脚本硬编码 kits/sheng 路径，所以 kit 保持 "sheng"（package/ 出现在 build tree 的 kits/sheng）。
+# 等 nuwa 自己的 kit 真正分歧后，再改成 "nuwa" 并同步所有 scripts 里的 kits/sheng 引用。
+kit = "nuwa"
+
+# The target OS image: the unchanged iPad7,1 iPadOS 17.7.11 restore image, identical to sheng and vermeer
+# (the whole qualified chain - prelink roots, trust caches, kernel args - targets this build).
+[ipsw]
+url = "https://updates.cdn-apple.com/2025SpringFCS/fullrestores/122-77166/DCA6CFE8-90E9-4B92-880D-3DE171798E40/iPad_Pro_HFR_17.7.11_21H461_Restore.ipsw"
+product = "iPad7,1"
+version = "17.7.11"
+build = "21H461"
+device_class = "j120ap"
+chip_id = 0x8011
+board_id = 12
+fetch = ["KernelCache", "DeviceTree", "StaticTrustCache", "Cryptex1,SystemTrustCache"]   # the small components
+
+[ipsw.sha256]
+"044-76040-038.dmg" = "3f99b859c9728379110b66657c7b15285bcb1925ad8b5726542e2cdcf8b1028d"
+"044-76034-038.dmg" = "b4908cde41d23e6bc05e6af51a2c9eeb00cf0f863a6a18b1600c96a3fd70414f"
+
+# The raw image for the userdata partition: the OS and SystemOS disk images of the IPSW behind a manifest.
+# first_lba / last_lba are the GPT entry "userdata" of LUN 0, read from the device.
+#
+# Measured on nuwa itself (2026-10-24), no longer sheng's placeholders:
+# fastboot getvar partition-size:userdata reports 0x3804BBB000 bytes and
+# (last_lba - first_lba + 1) * lba_bytes == 0x3804BBB000 exactly, so these two LBAs agree with
+# the size the device itself exports. The driver never trusts them -- it re-reads the GPT entry
+# named "userdata" at boot (NativeUfs/RootLayout.h) -- they only bound the host-side image size.
+[userdata]
+first_lba = 0x2f7840
+last_lba = 0x3afc3fa
+lba_bytes = 4096
+windows = [
+  { name = "OS", component = "OS" },
+  { name = "SystemOS", component = "Cryptex1,SystemOS" },
+]
+
+[kernel]
+defconfig = "nuwa_defconfig"
+# Archive builders of the kernel step, in order. Same list as sheng: these are SoC-level components plus the
+# sheng package's own kits. The first bring-up boots the sheng kit on nuwa hardware, so keep this identical;
+# device-specific pieces (touch!) are replaced later, not now.
+archives = [
+  "build-corecrypto-14.py",
+  "build-corecrypto-14.py --namespace",
+  "build-arm-driver.py ArmDTPlatform",
+  "build-arm-driver.py ArmCpu",
+  "build-arm-driver.py NativeAES",
+  "build-native-aes-bindings.py",
+  "prepare-storage-headers.py",
+  "build-arm-driver.py NativeUfs --unverified",
+  "build-ufs-original-bindings.py",
+  "build-mockfs-fixture.py",
+  "build-sheng-platform-power.py",
+  "build-libpthread-kernel.py",
+  "build-native-legacy-display.py",
+]
+
+[kernel.prelink]
+tool = "kits/NativePrelink/emit_prelink.py"
+kernel = "build/xnu/ios-obj/DEVELOPMENT_ARM64_BCM2837/mach.development.bcm2837.unstripped.noctf"
+kernelcache_sha256 = "f18b4df865405f2a287b84977d7aca745e056d656d9fc9df1662970ce2969de7"
+slide = "-0x1000000"
+early_security_init = "com.apple.driver.AppleMobileFileIntegrity=0xfffffff005ab4ae0"
+roots = [
+  "com.apple.AppleFSCompression.AppleFSCompressionTypeZlib",
+  "com.apple.driver.AppleARMPlatform",
+  "com.apple.driver.AppleARMWatchdogTimer",
+  "com.apple.driver.AppleAudioClockLibs",
+  "com.apple.driver.AppleEffaceableStorage",
+  "com.apple.driver.AppleIISController",
+  "com.apple.driver.AppleM2ScalerCSCDriver",
+  "com.apple.driver.AppleMobileFileIntegrity",
+  "com.apple.driver.ApplePMGR",
+  "com.apple.driver.IODARTFamily",
+  "com.apple.filesystems.apfs",
+  "com.apple.iokit.CoreAnalyticsFamily",
+  "com.apple.iokit.IOAVFamily",
+  "com.apple.iokit.IOAudio2Family",
+  "com.apple.iokit.IOCECFamily",
+  "com.apple.iokit.IOCryptoAcceleratorFamily",
+  "com.apple.iokit.IOGPUFamily",
+  "com.apple.iokit.IOHDCPFamily",
+  "com.apple.iokit.IOMobileGraphicsFamily",
+  "com.apple.iokit.IOReportFamily",
+  "com.apple.iokit.IOSlowAdaptiveClockingFamily",
+  "com.apple.iokit.IOStorageFamily",
+  "com.apple.iokit.IOSurface",
+  "com.apple.kec.Libm",
+  "com.apple.kec.corecrypto",
+  "com.apple.kext.AppleMatch",
+  "com.apple.kext.CoreTrust",
+  "com.apple.security.AppleImage4",
+  "com.apple.security.sandbox",
+  "com.apple.iokit.IOHIDFamily",
+  "com.apple.iokit.IOHIDEventDriver",
+]
+
+[firmware]
+# 机子的固件代际是 MIUI 14 / Android 13（内核 5.15），与 sheng 的 OS3.0.305、K70 的 OS1.0 都不是一代。
+# 下面的 config/dsc 名可沿用（那是 Mu-Silicium 的构建配置），但 FD 窗口与 Display Reserved 必须用
+# 机主自己 ROM 里的 uefi.elf → uefiextract → RawFiles/uefiplat.cfg 核对一遍再定。
+config = "nuwa"                    # Resources/Configs/nuwa.toml in the uefi-nuwa checkout (--uefi)
+dsc = "Platforms/Xiaomi/nuwaPkg/nuwa.dsc"
+fd = "Build/nuwaPkg/{target}_CLANGPDB/FV/SILICIUM_UEFI.fd"
+# TODO: uefi-nuwa 自己的预检脚本，照 sheng 的 scripts/check-sheng.py 改（核对固件文件齐全、FD 窗口）
+preflight = ["scripts/check-nuwa.py"]
+submodules = ["Common/Mu", "Common/Mu_OEM_Sample", "Silicium-ACPI", "Silicon/Silicium/OpensslPkg/Library/OpensslLib/openssl", "Binaries"]
+patches = ["Resources/MuPatches/Gic-Spurious.patch"]
+packages = [
+  "{uefi}",
+  "{uefi}/Platforms/Xiaomi",
+  "{tree}/package",
+  "{tree}/drivers/DarwinBoot",
+  "{edk2}",
+  "{uefi}/Common/Mu",
+  "{uefi}/Common/Mu_OEM_Sample",
+  "{uefi}/Silicon/Qualcomm",
+  "{uefi}/Silicon/Silicium",
+  "{uefi}/Silicium-ACPI",
+  "{uefi}/Silicium-ACPI/Platforms/Xiaomi",
+  "{uefi}/Silicium-ACPI/Silicon/Qualcomm",
+]
+
+# FD 窗口取自 Mu-Silicium 的 Resources/Configs/nuwa.toml（已核实：base 0xA7100000 / size 0x300000，
+# 与 sheng 相同）。FD_BASE / FD_SIZE / FD_BLOCKS 由 unixnu 驱动从这里或 Resources/Configs 传下去。
+[firmware.defines]
+ENABLE_SECUREBOOT = "1"
+DEVICE_MODEL = "nuwa"
+MEMORY_PROTECTION = "TRUE"
+SHIP_MODE = "FALSE"
+BUILDID_STRING = "nuwa-research"
+
+# The ramdisk of the boot image: a FAT volume with the UniXNU config, the kernel, its device tree and
+# the optional trust cache and Data seed. The loader (DarwinBoot) is part of the firmware volume.
+[payload]
+volume = "NUWAESP"
+# nuwa 的 boot_a 是 192 MiB（vendor_boot 96 / init_boot 8 / dtbo 24，已核实）。boot.img = payload +
+# UEFI FD(3 MiB) + DTB + header ≈ payload + 1.8 MiB，所以 payload 必须 ≤ 190 MiB 才能装进 boot_a
+# （实测 192 MiB payload 打包后 194 MB，fastboot 报 Volume Full）。用 188 MiB 留余量；走 vendor_boot
+# 需压到 64 以内（uke 那条路 nuwa 装不下）。
+size_mib = 188
+loader = "firmware"
+title = "nuwa first boot: source 4K XNU to console"
+dram_size = "0x80000000"             # first-boot window as sheng; TODO 上机后用 SMEM RAM 表实测值替换
+skip_setup_tool = "scripts/seed-data-skip-setup.py"   # used by --skip-setup
+# Hand the root image (the nuwa-root-ramdisk artifact) to the payload as `initrd`, so
+# DarwinBoot records it as /chosen/memory-map RAMDisk for the kernel's rd=md0 branch.
+# True = ramdisk root, false = the UFS volume named by rootdev=. Only one root at a time;
+# the two switches are checked against each other in the workflow.
+root_ramdisk = false
+# 探针已经给出结论（2026-10-23 15:39 真机）：绿条=DarwinBoot、蓝条=内核入口、品红条=MMU 使能前，
+# 之后 5 秒复位 —— 说明内核执行到 MMU 之后才停住。现在把"静默"变成"文字"：panic() 的格式串
+# 直接画在帧缓冲上。地址已按我们内核的符号重算（_panic 0xFFFFFFF00799AD50 / _vinfo 0xFFFFFFF007AEA970）。
+panic_screen = true
+# Entry probe (stage bars in the frame buffer). stage 1 = kernel entry with the MMU off (blue band),
+# stage 2 = just before the MMU is on (magenta band); with a reset delay, stage 3 resets via PSCI
+# that many seconds after the MMU is on. Set to 0/absent to skip the probe entirely.
+# 这一轮不开复位：panic 屏画完会停住，复位会把文字冲掉。
+# entry_probe_reset_delay = 5
+# The original static/System trust caches, and the owner trust bundle built around them.
+# Same IPSW as sheng, so the same hashes are correct here.
+trust_cache_sha256 = [
+  # The two iPad7,1 17.7.11 caches earlier rounds shipped with; kept so old artifacts stay explainable.
+  "7416ca4f8377146626bb284e2133c76bee6cb4e3ee0af5d648b186235a7323a7",
+  "8900d6a93d7a59ce1a872a5c081e559f4240a218f97e12d44d22dda46644d68f",
+  # The real donor build: iPhone10,3 16.7.16 20H392. StaticTrustCache (2760 entries, 66264 B) and
+  # Cryptex1,SystemTrustCache (61 entries, 1488 B), unpacked from the DER-wrapped IM4P components of
+  # the IPSW and packed in the bundle layout UniXNU/scripts/build-original-system-trust.py uses
+  # (u32 version=2, u32 header=12, u32 static_end, then the two unmodified modules). Both modules
+  # were verified as complete version-2 caches (len == 24 + count * 24) before packaging.
+  # Why this exists: launchd was exec'd but SIGKILLed with "namespace 9 code 0x8", which
+  # check-air-nir-native.py:46 classifies as an EXEC security-policy refusal -- the payload had no
+  # trust cache at all, so no userland binary could prove its own trust.
+  "eb1475f643f45a974ebd40596f6e2b1cdf40205d2ca3c6094d774886099399c3",
+]
+# sheng-* 参数保持原样：第一版跑的是 sheng package 的驱动代码（NativeLegacyDisplay / ShengPlatformPower /
+# 触控等），参数名和实现绑死。等 nuwa 自己的 kit 分歧了再改名，不要提前动。
+kernel_args = [
+  "-v",
+  # serial=3 is sheng's debug UART. nuwa has no wired console, and a kernel
+  # that probes a missing UART stalls with the screen frozen and no reset.
+  # Leave it out until a console is actually connected.
+  "debug=0x14e",
+  "kt_fixed_zones=120",
+  "offline-legacy-register=1",
+  "offline-legacy-gop=1",
+  "offline-legacy-unit-scale=2",
+  "offline-legacy-pm=1",
+  "offline-legacy-validate=1",
+  "offline-legacy-transfer=1",
+  "offline-legacy-cpu-present=1",
+  "offline-hid-home=1",
+  "offline-hid-input=1",
+  "offline-legacy-phase=4",
+  "offline-mobile-graphics-client=1",
+  "offline-mobile-graphics-load=1",
+  "offline-apfs-load=1",
+  "boot-progress=2",
+  "-apfs_shared_datavolume",
+  "offline-key-events=1",
+  # AMFI panics with "AMFI: No PMGR?" at ConfigurationSettings.cpp:235 without the
+  # PMGR integration: it looks the service up during early init and the unchanged
+  # target kernel has no ApplePMGR of its own. Still required with a ramdisk root:
+  # AMFI runs before BSD init, so the PMGR lookup happens regardless of where root lives.
+  "sheng-pmgr=2",
+  # ---- root: the real iOS root on userdata (2026-10-24) --------------------------------
+  # History, so the next round does not re-litigate it: the ramdisk root mounted md0 and reached
+  # load_init_program; the UFS root then published a window, IOBSDNameMatching resolved disk0s1 in
+  # one shot and bsd_init mounted the volume -- the screen showed "rootvp not authenticated after
+  # mounting" (AMFI seal), not a discovery failure. Both proved the lower chain, and both dead-end
+  # without a real Apple root: a hand-made HFSX can never pass FSIOC_KERNEL_ROOTAUTH.
+  # So the root now is the unchanged OS + SystemOS APFS images of the IPSW, published as the two
+  # SHNGROOT windows of the userdata partition (image built by scripts/make-userdata.py; flashing
+  # userdata erases Android -- accepted by the user on 2026-10-24 16:32).
+  # There is deliberately no rootdev= here: two windows are published, their diskXsY names depend
+  # on the publication order (SystemOS first, OS last -- NativeUfs/RootPublication.h), so the root
+  # is named by identity through the APFS volume UUID in [payload.adt] root_match_volume_uuid.
+  # Declare the root as a ramdisk although it is not one, with a one-character twist that matters:
+  #
+  #   bsd_rooted_ramdisk() (bsd_init.c:458) compares with strncmp(dev_path, "md0", 3), a PREFIX
+  #   match, and its true makes the kernel skip FSIOC_KERNEL_ROOTAUTH entirely (bsd_init.c:929).
+  #   IOFindBSDRoot (IOKitBSDInit.cpp:786) and IORamDiskBSDRoot (:1017) instead test
+  #   rdBootVar[0]=='m' && rdBootVar[1]=='d' && rdBootVar[3]==0, i.e. EXACTLY "md0"; a longer
+  #   value falls through, so the root-matching dictionary survives and the UUID match is used.
+  #
+  # "md0" alone is not usable: :786 then releases the root-matching dictionary, looks up md0,
+  # finds no configured RAMDisk and panics "specified root memory device, md0, has not been
+  # configured" (measured 2026-10-24). "md0x" keeps both halves happy: seal skipped, real APFS
+  # root still discovered by UUID. Measured before that: with the real OS/SystemOS APFS windows
+  # the screen showed "rootvp not authenticated after mounting @bsd_init.c:1098", i.e. a genuine
+  # Apple volume does NOT self-seal against this check -- the seal needs Image4 policy this
+  # device cannot satisfy.
+  "rd=md0x",
+  # The dyld shared cache of this root lives on the SystemOS (Cryptex) volume, not on the OS
+  # volume, and dyld only looks under /System/Library/Caches/com.apple.dyld. Measured 2026-10-24:
+  # with the trust cache in place launchd was exec'd and dyld then refused with
+  # "Library not loaded: /usr/lib/libSystem.B.dylib ... (no such file, no dyld cache)".
+  # patches/xnu/zzu-offline-systemos-mount.patch (device repository) mounts that volume read-only
+  # on /System/Cryptexes/OS and hands launchd DYLD_SHARED_CACHE_DIR pointing into it.
+  "offline-systemos-mount=1",
+  # Diagnostic AMFI enforcement off. Measured 2026-10-24: with rd=md0x the kernel exec'd
+  # /sbin/launchd and then SIGKILLed it with "unexpected SIGKILL of launchd with reason --
+  # namespace 9 code 0x8 description none", which this repository's own check-air-nir-native.py:46
+  # classifies as an EXEC security-policy refusal when the process has no trust of its own.
+  # The payload carries no trust cache at all (kernel.yml never passes --trust-cache), so the
+  # refusal is expected; this switch answers "is that the only thing in the way" in one round.
+  # Diagnostic only: it changes the security policy.
+  "amfi_get_out_of_my_way=1",
+  "native-ufs-root=1",
+  # The build carries no signed policy (the --unverified transport), so the publication phase
+  # refuses every window unless this opt-in is present.
+  "native-ufs-root-unverified=1",
+  # The root manifest lives in userdata now: that partition holds the SHNGROOT image
+  # (1 MiB manifest + OS window + SystemOS window).
+  "native-ufs-root-partition=userdata",
+  "armcpu-diagnostics=1",
+  "-no_slto_panic",
+]
+
+[payload.adt]
+tool = "scripts/make-nuwa-adt.py"
+chip_id = "207"
+owned_memory_size = "0x130000000"
+cpu_regs = "0,0x100,0x200,0x300,0x400,0x500,0x600,0x700"
+# A ramdisk root needs /chosen/memory-map to carry a plain `RAMDisk` node whose two u64 are
+# zero; DarwinBoot then fills in the real (physical address, size) pair when it copies the
+# payload's `initrd` into the boot window, and IOFindBSDRoot's rd=md0 branch calls mdevadd().
+# This is only emitted when the payload is given --data-ramdisk, i.e. when [payload]
+# root_ramdisk is on. `PackedRAMDisk` would hand the bytes to a sparse block driver
+# (NativeRamBlock) instead — a different path with its own prelink, not what we want.
+#
+# `root_match_volume_uuid` selects the root by the UUID APFS publishes as the IOMedia "UUID"
+# property (/chosen/root-matching -> IOFindBSDRoot parses it into an IOMedia match, IOKitBSDInit.cpp:727).
+# It is present now because the root moves to the userdata SHNGROOT layout, which publishes two
+# windows: the BSD name of an APFS volume (diskXsY) shifts with the publication order, so the name
+# cannot identify the root, and the previous rounddev=disk0s1 run already proved the mount itself
+# works (it stopped at the AMFI seal, not at discovery). Measured with scripts/apfs-info.py from
+# the unpacked IPSW: the OS volume of iPhone10,3_16.7.16_20H392 is uuid=dadd93f8-dbbf-4b17-a1df-0f11e64172f7
+# ("SydneyUpdate20H392.D22D221OS", APFS role=system, 10 checkpoint copies agree).
+# SystemOS is 96096b28-b6dc-4bc7-9d3a-2632a0fe53f1 ("SydneyUpdate20H392.D22D221SystemCryptex");
+# it is not the root, it mounts under /System/Cryptexes.
+root_match_volume_uuid = "DADD93F8-DBBF-4B17-A1DF-0F11E64172F7"
+ipad_identity = true
+unique_chip_id = "required"          # the platform seed is not stored in any repository
+
+# Image parameters come from the Mu-Silicium device config; [bootimg.image] overrides them.
+#
+# 实测结论：v1（Mu 的 nuwa.toml 值）和 v0（sheng 的值）都被 nuwa 的 ABL 拒绝 —— 设备停在 fastboot、黑屏；
+# 换成 v3 后设备离开 fastboot 并进入 UEFI（与官方 Mu-qrd8550.img 的表现一致）。所以 nuwa 要 v3。
+# 注意：unixnu 自带的 verify() 按 v0 布局解析 v3，会把正确镜像判错，故 workflow 里放宽它的退出码，
+# 改用 scripts/check-bootimg.py 校验。
+[bootimg.image]
+header_version = 3
+base = 0
+kernel_offset = 0x8000
+tags_offset = 0x1e00000
+pagesize = 4096
+
+# The stock ABL powers the panel off when the device tree has no splash region, so add it.
+#
+# 值已核实：来自 nuwaPkg 自己的 Library/MemoryMapLib/MemoryMapLib.c
+#   {"Display Reserved", 0xB8000000, 0x02B00000, AddMem, MEM_RES, SYS_MEM_CAP, Reserv, WRITE_THROUGH_XN}
+# 与 sheng 的数值相同，但这里是 nuwa 自己的出处，不是照抄。复核命令：
+#   python scripts/check-nuwa-memmap.py --dtb refs/nuwaPkg/sm8550-xiaomi-nuwa.dtb --memmap refs/nuwaPkg/MemoryMapLib.c
+[[bootimg.dtb_node]]
+path = "/reserved-memory/splash_region"
+props = [
+  { name = "label", type = "s", value = "cont_splash_region" },
+  { name = "reg", type = "x", value = ["0x0", "0xb8000000", "0x0", "0x2b00000"] },
+]

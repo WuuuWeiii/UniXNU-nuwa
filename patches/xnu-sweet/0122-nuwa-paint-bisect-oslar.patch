@@ -1,46 +1,13 @@
 diff --git a/osfmk/arm64/start.s b/osfmk/arm64/start.s
 --- a/osfmk/arm64/start.s
 +++ b/osfmk/arm64/start.s
-@@ -126,9 +126,56 @@
- 	.globl EXT(reset_vector)
- LEXT(reset_vector)
- 	// Preserve x0 for start_first_cpu, if called
+@@ -129,8 +129,24 @@
  	// Unlock the core for debugging
-+
-+/*
-+ * nuwa bring-up: paint the panel instead of writing DRAM.
-+ *
-+ * The page at 0x8d3003000 does not survive a reboot here. DarwinBoot
-+ * writes the magic there and reads it straight back -- proving it is
-+ * writable -- yet the next boot reads all 0xff, so XBL reinitialises
-+ * DDR on every start. A missing stage bar therefore cannot be told
-+ * apart from a wiped one, which invalidates every earlier conclusion
-+ * drawn from that page.
-+ *
-+ * So paint the whole splash region instead; it is writable with the MMU
-+ * off and the user can simply look at it:
-+ *   red   = reached start_first_cpu, framebuffer writable
-+ *   green = msr OSLAR_EL1 did not fault (held forever)
-+ * Any other outcome (no colour, or a reset) points earlier.
-+ */
-+#if defined(SWEET)
-+	MOV64	x9, 0xb8000000
-+	MOV64	x10, 0xffff0000
-+	MOV64	x11, 0x240000
-+1:	str		x10, [x9], #8
-+	subs	x11, x11, #1
-+	b.ne	1b
-+	dsb		sy
-+	mov		x12, #0x8000000
-+2:	subs	x12, x12, #1
-+	b.ne	2b
-+	dsb		sy
-+#endif
-+
  	msr		OSLAR_EL1, xzr
-+
+ 	msr		DAIFSet, #(DAIFSC_ALL)				// Disable all interrupts
+ 
 +#if defined(SWEET)
-+/* OSLAR did not fault: green, then stop so the colour persists. */
++	/* 2 green */
 +	MOV64	x9, 0xb8000000
 +	MOV64	x10, 0xff00ff00
 +	MOV64	x11, 0x240000
@@ -48,70 +15,164 @@ diff --git a/osfmk/arm64/start.s b/osfmk/arm64/start.s
 +	subs	x11, x11, #1
 +	b.ne	1b
 +	dsb		sy
-+	mov		x12, #0x8000000
++	mov		x12, #0x4000000
 +2:	subs	x12, x12, #1
 +	b.ne	2b
 +	dsb		sy
-+3:	b	3b
 +#endif
++
++
+ #if !(defined(KERNEL_INTEGRITY_KTRR) || defined(KERNEL_INTEGRITY_CTRR))
+ 	// Set low reset vector before attempting any loads
+ 	adrp    x0, EXT(LowExceptionVectorBase)@page
+ 	add     x0, x0, EXT(LowExceptionVectorBase)@pageoff
+@@ -311,8 +327,24 @@
+ 	ldr		x23, [x20, BA_PHYS_BASE]			// Get the kernel phys base
+ 	ldr		x24, [x20, BA_MEM_SIZE]				// Get the physical memory size
+ 	adrp	x25, EXT(bootstrap_pagetables)@page	// Get the start of the page tables
+ 	ldr		x26, [x20, BA_BOOT_FLAGS]			// Get the kernel boot flags
++
++#if defined(SWEET)
++	/* 3 blue */
++	MOV64	x9, 0xb8000000
++	MOV64	x10, 0xff0000ff
++	MOV64	x11, 0x240000
++1:	str		x10, [x9], #8
++	subs	x11, x11, #1
++	b.ne	1b
++	dsb		sy
++	mov		x12, #0x4000000
++2:	subs	x12, x12, #1
++	b.ne	2b
++	dsb		sy
++#endif
++
+ 
+ 
+ 	// Set TPIDR_EL0 with the CPU number
+ 	ldrsh	x0, [x21, CPU_NUMBER_GS]
+@@ -455,8 +487,24 @@
+ 	.align 2
+ 	.globl EXT(start_first_cpu)
+ LEXT(start_first_cpu)
+ 
++#if defined(SWEET)
++	/* 1 red */
++	MOV64	x9, 0xb8000000
++	MOV64	x10, 0xffff0000
++	MOV64	x11, 0x240000
++1:	str		x10, [x9], #8
++	subs	x11, x11, #1
++	b.ne	1b
++	dsb		sy
++	mov		x12, #0x4000000
++2:	subs	x12, x12, #1
++	b.ne	2b
++	dsb		sy
++#endif
++
++
+ 	// Unlock the core for debugging
+ 	msr		OSLAR_EL1, xzr
+ 	msr		DAIFSet, #(DAIFSC_ALL)				// Disable all interrupts
+ 
+@@ -550,8 +598,24 @@
+ 	str		x0, [x1], #(1 << TTE_SHIFT)			//   Invalidate and advance
+ 	subs	x2, x2, #1							//   entries--
+ 	b.ne	Linvalidate_bootstrap				// } while (entries != 0)
+ 
++#if defined(SWEET)
++	/* 4 yellow */
++	MOV64	x9, 0xb8000000
++	MOV64	x10, 0xff00ffff
++	MOV64	x11, 0x240000
++1:	str		x10, [x9], #8
++	subs	x11, x11, #1
++	b.ne	1b
++	dsb		sy
++	mov		x12, #0x4000000
++2:	subs	x12, x12, #1
++	b.ne	2b
++	dsb		sy
++#endif
++
++
+ 	/*
+ 	 * In order to reclaim memory on targets where TZ0 (or some other entity)
+ 	 * must be located at the base of memory, iBoot may set the virtual and
+ 	 * physical base addresses to immediately follow whatever lies at the
+@@ -626,8 +690,24 @@
+ 
+ 	/* Setup the KVA bootstrap mapping */
+ 	lsr		x5,  x24, #(ARM_TT_L2_SHIFT)
+ 	create_bootstrap_mapping x14, x15, x5, x3, x2, x9, x10, x11, x12, x13
++
++#if defined(SWEET)
++	/* 5 cyan */
++	MOV64	x9, 0xb8000000
++	MOV64	x10, 0xffffff00
++	MOV64	x11, 0x240000
++1:	str		x10, [x9], #8
++	subs	x11, x11, #1
++	b.ne	1b
++	dsb		sy
++	mov		x12, #0x4000000
++2:	subs	x12, x12, #1
++	b.ne	2b
++	dsb		sy
++#endif
++
+ 
  #if defined(SWEET)
- 	/* nuwa breadcrumb: checkpoint 2 */
- 	MOV64	x9, 0x8d3003000
- 	MOV64	x10, 0x4e4f5445
-@@ -511,9 +558,56 @@
+ 	/*
+ 	 * Splash framebuffer: one 32MB Normal-NC block in the EXISTING V=P
+@@ -780,8 +860,24 @@
+ 	MOV64   x0, SCTLR_EL1_DEFAULT
+ 	MSR_SCTLR_EL1_X0
+ 	isb		sy
+ 
++#if defined(SWEET)
++	/* 6 magenta */
++	MOV64	x9, 0xb8000000
++	MOV64	x10, 0xffff00ff
++	MOV64	x11, 0x240000
++1:	str		x10, [x9], #8
++	subs	x11, x11, #1
++	b.ne	1b
++	dsb		sy
++	mov		x12, #0x4000000
++2:	subs	x12, x12, #1
++	b.ne	2b
++	dsb		sy
++#endif
++
++
+ #if !VMAPPLE && !defined(SWEET)
+ 	MOV64   x1, SCTLR_EL1_DEFAULT
+ 	cmp		x0, x1
+ 	bne		.
+@@ -844,8 +940,24 @@
  #endif
  
+ 	// Return to arm_init()
+ 	ret
++
++#if defined(SWEET)
++	/* 7 white */
++	MOV64	x9, 0xb8000000
++	MOV64	x10, 0xffffffff
++	MOV64	x11, 0x240000
++1:	str		x10, [x9], #8
++	subs	x11, x11, #1
++	b.ne	1b
++	dsb		sy
++	mov		x12, #0x4000000
++2:	subs	x12, x12, #1
++	b.ne	2b
++	dsb		sy
++#endif
++
  
- 	// Unlock the core for debugging
-+
-+/*
-+ * nuwa bring-up: paint the panel instead of writing DRAM.
-+ *
-+ * The page at 0x8d3003000 does not survive a reboot here. DarwinBoot
-+ * writes the magic there and reads it straight back -- proving it is
-+ * writable -- yet the next boot reads all 0xff, so XBL reinitialises
-+ * DDR on every start. A missing stage bar therefore cannot be told
-+ * apart from a wiped one, which invalidates every earlier conclusion
-+ * drawn from that page.
-+ *
-+ * So paint the whole splash region instead; it is writable with the MMU
-+ * off and the user can simply look at it:
-+ *   red   = reached start_first_cpu, framebuffer writable
-+ *   green = msr OSLAR_EL1 did not fault (held forever)
-+ * Any other outcome (no colour, or a reset) points earlier.
-+ */
-+#if defined(SWEET)
-+	MOV64	x9, 0xb8000000
-+	MOV64	x10, 0xffff0000
-+	MOV64	x11, 0x240000
-+1:	str		x10, [x9], #8
-+	subs	x11, x11, #1
-+	b.ne	1b
-+	dsb		sy
-+	mov		x12, #0x8000000
-+2:	subs	x12, x12, #1
-+	b.ne	2b
-+	dsb		sy
-+#endif
-+
- 	msr		OSLAR_EL1, xzr
-+
-+#if defined(SWEET)
-+/* OSLAR did not fault: green, then stop so the colour persists. */
-+	MOV64	x9, 0xb8000000
-+	MOV64	x10, 0xff00ff00
-+	MOV64	x11, 0x240000
-+1:	str		x10, [x9], #8
-+	subs	x11, x11, #1
-+	b.ne	1b
-+	dsb		sy
-+	mov		x12, #0x8000000
-+2:	subs	x12, x12, #1
-+	b.ne	2b
-+	dsb		sy
-+3:	b	3b
-+#endif
- #if defined(SWEET)
- 	/* nuwa breadcrumb: checkpoint 2 */
- 	MOV64	x9, 0x8d3003000
- 	MOV64	x10, 0x4e4f5445
+ Ltrampoline:
+ 	// Load VA of the trampoline
+ 	adrp	x0, arm_init_tramp@page
