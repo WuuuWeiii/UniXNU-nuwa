@@ -169,7 +169,7 @@ diff --git a/osfmk/arm64/start.s b/osfmk/arm64/start.s
  	MOV64   x1, SCTLR_EL1_DEFAULT
  	cmp		x0, x1
  	bne		.
-@@ -843,8 +957,44 @@
+@@ -843,8 +957,45 @@
  	mov	lr, x21
  #endif
  
@@ -208,6 +208,7 @@ diff --git a/osfmk/arm64/start.s b/osfmk/arm64/start.s
 +2:	subs	x12, x12, #1
 +	b.ne	2b
 +	dsb		sy
++	blr	x30
 +#endif
 +
  	ret
