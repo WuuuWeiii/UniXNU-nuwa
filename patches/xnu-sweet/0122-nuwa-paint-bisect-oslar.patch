@@ -126,7 +126,7 @@ diff --git a/osfmk/arm64/start.s b/osfmk/arm64/start.s
  #if defined(SWEET)
  	/*
  	 * Splash framebuffer: one 32MB Normal-NC block in the EXISTING V=P
-@@ -780,8 +860,24 @@
+@@ -780,8 +860,42 @@
  	MOV64   x0, SCTLR_EL1_DEFAULT
  	MSR_SCTLR_EL1_X0
  	isb		sy
@@ -144,6 +144,24 @@ diff --git a/osfmk/arm64/start.s b/osfmk/arm64/start.s
 +2:	subs	x12, x12, #1
 +	b.ne	2b
 +	dsb		sy
++	/* stack round-trip: white next if it works */
++	MOV64	x9, 0x5a5aa5a5
++	str		x9, [sp, #-16]
++	ldr		x10, [sp, #-16]
++	cmp		x9, x10
++	b.ne	9f
++	MOV64	x9, 0xb8000000
++	MOV64	x10, 0xffffffff
++	MOV64	x11, 0x240000
++1:	str		x10, [x9], #8
++	subs	x11, x11, #1
++	b.ne	1b
++	dsb		sy
++	mov		x12, #0x4000000
++2:	subs	x12, x12, #1
++	b.ne	2b
++	dsb		sy
++	9:
 +#endif
 +
 +
@@ -151,7 +169,7 @@ diff --git a/osfmk/arm64/start.s b/osfmk/arm64/start.s
  	MOV64   x1, SCTLR_EL1_DEFAULT
  	cmp		x0, x1
  	bne		.
-@@ -844,8 +940,24 @@
+@@ -844,8 +958,24 @@
  #endif
  
  	// Return to arm_init()
