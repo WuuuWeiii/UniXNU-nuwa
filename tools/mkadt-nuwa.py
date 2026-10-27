@@ -10,8 +10,8 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import adt  # noqa: E402
 
 # Kernel-managed RAM: above every Qualcomm XPU carve-out (see NOTES.md)
-PHYS_BASE = 0xb0000000
-MEM_SIZE = 0x4d000000
+PHYS_BASE = 0x8c0004000
+MEM_SIZE = 0x13000000
 # Panic log buffer, carved from the TOP of the dram range and exposed to XNU as
 # /pram + /chosen/embedded-panic-log-size. Without it, pe_init.c's
 # check_for_panic_log() leaves gPanicBase == 0, debug_log_init() bails out twice
@@ -24,13 +24,13 @@ PANIC_LOG_SIZE = 0x100000
 HIGH_PHYS_BASE = 0x100000000
 HIGH_MEM_SIZE = 0xfcc00000
 # /arm-io children are relative to this; it must not be 0 (serial_init bails)
-SOC_BASE = 0x01000000
+SOC_BASE = 0x17000000
 
-GICD, GICD_SIZE = 0x17a00000, 0x10000
-GICR, GICR_SIZE = 0x17a60000, 0x100000
-FB, FB_SIZE = 0x9c000000, 0x1700000
+GICD, GICD_SIZE = 0x17100000, 0x10000
+GICR, GICR_SIZE = 0x17180000, 0x200000
+FB, FB_SIZE = 0xb8000000, 0x2b00000
 SWEET_ECID = 0x5357454554000001  # 'SWEET' + 1, synthetic
-FB_W, FB_H, FB_STRIDE = 1080, 2400, 1080 * 4
+FB_W, FB_H, FB_STRIDE = 1440, 3200, 1440 * 4
 # Internal UFS host (ufshc@1d84000 "ufs_mem"); QEMU virt has none
 UFS, UFS_SIZE = 0x01d84000, 0x3000
 TIMEBASE = 19200000
@@ -163,15 +163,17 @@ def build(seed=None, qemu=False, highmem=False):
         ('compatible', cstr('arm,gic-v3')),
         ('interrupt-controller', b''),
         ('virtual-timer-intid', u32(QEMU_VTIMER_INTID if qemu else VTIMER_INTID)),
+        # SM8550 redistributor stride between the two 0x100000 frames
+        ('redistributor-stride', u64(0x40000)),
         ('reg', u64(gicd - SOC_BASE, GICD_SIZE, gicr - SOC_BASE, GICR_SIZE)),
     ])
     arm_io = node('arm-io', [
         ph(),
-        ('device_type', cstr('sweet-io')),
+        ('device_type', cstr('arm-io')),
         ('compatible', cstr('sweet-io') + cstr('arm-io')),
         ('#address-cells', u32(2)),
         ('#size-cells', u32(2)),
-        ('ranges', u64(0, SOC_BASE, 0x100000000 - SOC_BASE)),
+        ('ranges', u64(0, SOC_BASE, 0x08000000)),
     ], [gic,
         # No hardware: watchdogd checks IODeviceTree:/arm-io/wdt for no-pmu and
         # otherwise crashes trying to set the PMU boot stage (customer builds
