@@ -169,7 +169,7 @@ diff --git a/osfmk/arm64/start.s b/osfmk/arm64/start.s
  	MOV64   x1, SCTLR_EL1_DEFAULT
  	cmp		x0, x1
  	bne		.
-@@ -843,8 +957,24 @@
+@@ -843,8 +957,61 @@
  	mov	lr, x21
  #endif
  
@@ -188,6 +188,43 @@ diff --git a/osfmk/arm64/start.s b/osfmk/arm64/start.s
 +2:	subs	x12, x12, #1
 +	b.ne	2b
 +	dsb		sy
++	sub		sp, sp, #0xd0
++	stp		x28, x27, [sp, #112]
++	stp		x26, x25, [sp, #128]
++	stp		x24, x23, [sp, #144]
++	stp		x22, x21, [sp, #160]
++	stp		x20, x19, [sp, #176]
++	stp		x29, x30, [sp, #192]
++	add		x29, sp, #0xc0
++	add		sp, sp, #0xd0
++	MOV64	x9, 0xb8000000
++	MOV64	x10, 0xff8000ff
++	MOV64	x11, 0x240000
++1:	str		x10, [x9], #8
++	subs	x11, x11, #1
++	b.ne	1b
++	dsb		sy
++	mov		x12, #0x4000000
++2:	subs	x12, x12, #1
++	b.ne	2b
++	dsb		sy
++	/* read early_fb; orange next if it is non-zero */
++	adrp	x9, EXT(early_fb)@page
++	add		x9, x9, EXT(early_fb)@pageoff
++	ldr		x10, [x9]
++	cbz		x10, 9f
++	MOV64	x9, 0xb8000000
++	MOV64	x10, 0xffff8000
++	MOV64	x11, 0x240000
++1:	str		x10, [x9], #8
++	subs	x11, x11, #1
++	b.ne	1b
++	dsb		sy
++	mov		x12, #0x4000000
++2:	subs	x12, x12, #1
++	b.ne	2b
++	dsb		sy
++	9:
 +#endif
 +
  	ret
