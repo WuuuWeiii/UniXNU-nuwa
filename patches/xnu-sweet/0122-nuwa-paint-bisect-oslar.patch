@@ -1,0 +1,117 @@
+diff --git a/osfmk/arm64/start.s b/osfmk/arm64/start.s
+--- a/osfmk/arm64/start.s
++++ b/osfmk/arm64/start.s
+@@ -126,9 +126,56 @@
+ 	.globl EXT(reset_vector)
+ LEXT(reset_vector)
+ 	// Preserve x0 for start_first_cpu, if called
+ 	// Unlock the core for debugging
++
++/*
++ * nuwa bring-up: paint the panel instead of writing DRAM.
++ *
++ * The page at 0x8d3003000 does not survive a reboot here. DarwinBoot
++ * writes the magic there and reads it straight back -- proving it is
++ * writable -- yet the next boot reads all 0xff, so XBL reinitialises
++ * DDR on every start. A missing stage bar therefore cannot be told
++ * apart from a wiped one, which invalidates every earlier conclusion
++ * drawn from that page.
++ *
++ * So paint the whole splash region instead; it is writable with the MMU
++ * off and the user can simply look at it:
++ *   red   = reached start_first_cpu, framebuffer writable
++ *   green = msr OSLAR_EL1 did not fault (held forever)
++ * Any other outcome (no colour, or a reset) points earlier.
++ */
++#if defined(SWEET)
++	MOV64	x9, 0xb8000000
++	MOV64	x10, 0xffff0000
++	MOV64	x11, 0x240000
++1:	str		x10, [x9], #8
++	subs	x11, x11, #1
++	b.ne	1b
++	dsb		sy
++	mov		x12, #0x8000000
++2:	subs	x12, x12, #1
++	b.ne	2b
++	dsb		sy
++#endif
++
+ 	msr		OSLAR_EL1, xzr
++
++#if defined(SWEET)
++/* OSLAR did not fault: green, then stop so the colour persists. */
++	MOV64	x9, 0xb8000000
++	MOV64	x10, 0xff00ff00
++	MOV64	x11, 0x240000
++1:	str		x10, [x9], #8
++	subs	x11, x11, #1
++	b.ne	1b
++	dsb		sy
++	mov		x12, #0x8000000
++2:	subs	x12, x12, #1
++	b.ne	2b
++	dsb		sy
++3:	b	3b
++#endif
+ #if defined(SWEET)
+ 	/* nuwa breadcrumb: checkpoint 2 */
+ 	MOV64	x9, 0x8d3003000
+ 	MOV64	x10, 0x4e4f5445
+@@ -511,9 +558,56 @@
+ #endif
+ 
+ 
+ 	// Unlock the core for debugging
++
++/*
++ * nuwa bring-up: paint the panel instead of writing DRAM.
++ *
++ * The page at 0x8d3003000 does not survive a reboot here. DarwinBoot
++ * writes the magic there and reads it straight back -- proving it is
++ * writable -- yet the next boot reads all 0xff, so XBL reinitialises
++ * DDR on every start. A missing stage bar therefore cannot be told
++ * apart from a wiped one, which invalidates every earlier conclusion
++ * drawn from that page.
++ *
++ * So paint the whole splash region instead; it is writable with the MMU
++ * off and the user can simply look at it:
++ *   red   = reached start_first_cpu, framebuffer writable
++ *   green = msr OSLAR_EL1 did not fault (held forever)
++ * Any other outcome (no colour, or a reset) points earlier.
++ */
++#if defined(SWEET)
++	MOV64	x9, 0xb8000000
++	MOV64	x10, 0xffff0000
++	MOV64	x11, 0x240000
++1:	str		x10, [x9], #8
++	subs	x11, x11, #1
++	b.ne	1b
++	dsb		sy
++	mov		x12, #0x8000000
++2:	subs	x12, x12, #1
++	b.ne	2b
++	dsb		sy
++#endif
++
+ 	msr		OSLAR_EL1, xzr
++
++#if defined(SWEET)
++/* OSLAR did not fault: green, then stop so the colour persists. */
++	MOV64	x9, 0xb8000000
++	MOV64	x10, 0xff00ff00
++	MOV64	x11, 0x240000
++1:	str		x10, [x9], #8
++	subs	x11, x11, #1
++	b.ne	1b
++	dsb		sy
++	mov		x12, #0x8000000
++2:	subs	x12, x12, #1
++	b.ne	2b
++	dsb		sy
++3:	b	3b
++#endif
+ #if defined(SWEET)
+ 	/* nuwa breadcrumb: checkpoint 2 */
+ 	MOV64	x9, 0x8d3003000
+ 	MOV64	x10, 0x4e4f5445
