@@ -1,0 +1,24 @@
+diff --git a/osfmk/arm/arm_init.c b/osfmk/arm/arm_init.c
+--- a/osfmk/arm/arm_init.c
++++ b/osfmk/arm/arm_init.c
+@@ -346,8 +346,20 @@
+ 	thread_t        thread;
+ 	DTEntry chosen = NULL;
+ 	unsigned int dt_entry_size = 0;
+ 
++	/*
++	 * Inline panel probe. No call, no static pointer, no float: if this
++	 * line runs the panel turns red, which tells us arm_init's C body is
++	 * reached even when sweet_early_mark itself never paints.
++	 */
++	{
++		volatile unsigned int *panel = (volatile unsigned int *)0xb8000000u;
++		for (unsigned int n = 0; n < 5760u * 8u; n++) {
++			panel[n] = 0xffff0000u;
++		}
++		__asm__ volatile("dsb sy" ::: "memory");
++	}
+ 	sweet_early_mark(1, "arm_init entered (MMU on)");
+ 
+ 	arm_setup_pre_sign();
+ 
