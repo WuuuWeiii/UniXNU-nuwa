@@ -20,7 +20,7 @@ diff --git a/osfmk/arm64/sweet_early.c b/osfmk/arm64/sweet_early.c
 +#define EARLY_NOTE_MAGIC  0x4e4f5445ULL /* 'ETON' */
 +#define EARLY_NOTE_STAGES 8u             /* arm_init stages 1..7 fit here */
 +
-+static volatile uint64_t *early_note = (volatile uint64_t *)(uintptr_t)EARLY_NOTE_BASE;
++#define early_note ((volatile uint64_t *)(uintptr_t)EARLY_NOTE_BASE)
 +
  static void
  sweet_early_clear_row(void)

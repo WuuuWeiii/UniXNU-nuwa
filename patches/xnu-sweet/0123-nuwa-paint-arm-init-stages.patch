@@ -1,7 +1,7 @@
 diff --git a/osfmk/arm64/sweet_early.c b/osfmk/arm64/sweet_early.c
 --- a/osfmk/arm64/sweet_early.c
 +++ b/osfmk/arm64/sweet_early.c
-@@ -122,8 +122,25 @@
+@@ -122,8 +122,26 @@
  		}
  		early_note[1] |= (1ULL << stage);
  		__asm__ volatile("dsb sy" ::: "memory");
@@ -18,8 +18,9 @@ diff --git a/osfmk/arm64/sweet_early.c b/osfmk/arm64/sweet_early.c
 +			0xffffff00u, 0xffff00ffu, 0xffffffffu, 0xff808080u
 +		};
 +		uint32_t c = sweet_stage_fill[(stage < 9u) ? stage : 8u];
++		volatile uint32_t *panel = (volatile uint32_t *)(uintptr_t)0xb8000000u;
 +		for (unsigned int n = 0; n < EARLY_WIDTH * EARLY_HEIGHT; n++) {
-+			EARLY_FB[n] = c;
++			panel[n] = c;
 +		}
 +		__asm__ volatile("dsb sy" ::: "memory");
 +	}
