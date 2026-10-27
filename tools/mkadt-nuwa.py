@@ -4,7 +4,7 @@
 Only what the early boot path actually reads (see NOTES.md); every MMIO
 address comes from the sweet live FDT. Usage:  mkadt.py OUT.adt [--dump] [--qemu] [--highmem]
 """
-import hashlib, os, struct, sys
+import hashlib, os, struct, sys, zlib
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import adt  # noqa: E402
@@ -74,6 +74,32 @@ def node(name, props=(), children=()):
     return n
 
 
+def empty_nvram_proxy():
+    """A fresh volatile CHRP bank for upstream IODTNVRAM, with no controller.
+
+    ArmDTPlatform::configure() rejects the tree when /chosen has no usable proxy,
+    so this is required even though nuwa has no persistent NVRAM controller.
+    """
+    def header(name, size):
+        raw = bytearray(struct.pack('<BBH12s', 0x70, 0, size // 16, name))
+        checksum = sum(raw)
+        while checksum > 255:
+            checksum = (checksum & 255) + (checksum >> 8)
+        raw[1] = checksum
+        return raw
+
+    image = bytearray(8192)
+    image[:16] = header(b'nvram', 32)
+    image[32:48] = header(b'common', 16 + 2048)
+    free_at = 32 + 16 + 2048
+    image[free_at:free_at + 16] = header(b'free', len(image) - free_at)
+    struct.pack_into('<I', image, 16, zlib.adler32(image[20:]))
+    return [('nvram-bank-size', struct.pack('<I', len(image))),
+            ('nvram-bank-count', struct.pack('<I', 1)),
+            ('nvram-current-bank', struct.pack('<I', 0)),
+            ('nvram-proxy-data', bytes(image))]
+
+
 def build(seed=None, qemu=False, highmem=False):
     """qemu=True: same tree, but with QEMU virt's GIC addresses and CNTFRQ (tools/qemu-sweet.py)."""
     phys_base, mem_size = (HIGH_PHYS_BASE, HIGH_MEM_SIZE) if highmem else (PHYS_BASE, MEM_SIZE)
@@ -121,7 +147,7 @@ def build(seed=None, qemu=False, highmem=False):
         ('effective-production-status-ap', u32(0)),
         ('certificate-security-mode', u32(1)),
         ('effective-security-mode-sep', u32(1)),
-    ], [node('memory-map', [ph()]),
+    ] + empty_nvram_proxy(), [node('memory-map', [ph()]),
         # Local boot policy (kern_csr.c): SIP relaxed like `csrutil disable`
         # (lp-sip0: untrusted kexts, unrestricted FS, task_for_pid, kernel
         # debugger, dtrace, nvram), lp-sip1: unauthenticated (unsealed) root.
@@ -240,7 +266,11 @@ def build(seed=None, qemu=False, highmem=False):
         ('manufacturer', cstr('Apple Inc.')),
         ('#address-cells', u32(2)),
         ('#size-cells', u32(2)),
-    ], [chosen, defaults, cpus, arm_io, fbcon, buttons, pram] + product + ([] if qemu else [ufs]))
+        # ArmDTPlatform::configure() requires /options to exist, even empty.
+        # /product is what original AppleImage4 panics without.
+    ], [chosen, defaults, node('options', [ph()]), cpus, arm_io, fbcon, buttons, pram]
+       + (product if product else [node('product', [('model', cstr('xiaomi,nuwa'))])])
+       + ([] if qemu else [ufs]))
 
 
 if __name__ == '__main__':
