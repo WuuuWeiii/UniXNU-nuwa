@@ -1,0 +1,36 @@
+diff --git a/osfmk/arm64/start.s b/osfmk/arm64/start.s
+--- a/osfmk/arm64/start.s
++++ b/osfmk/arm64/start.s
+@@ -843,8 +843,32 @@
+ 	mov	lr, x21
+ #endif
+ 
+ 	// Return to arm_init()
++	/*
++	 * Stack self-test. arm_init begins with a sub sp plus a row of stp stores,
++	 * so if this store/load faults, no C code can ever run and nothing will
++	 * follow the magenta colour.
++	 *   white         = the stack round-trips; the fault is inside arm_init
++	 *   magenta stays = the stack itself is unusable
++	 */
++	MOV64	x9, 0x5a5aa5a5
++	str		x9, [sp, #-16]
++	ldr		x10, [sp, #-16]
++	cmp		x9, x10
++	b.ne	9f
++	MOV64	x9, 0xb8000000
++	MOV64	x10, 0xffffffff
++	MOV64	x11, 0x240000
++1:	str		x10, [x9], #8
++	subs	x11, x11, #1
++	b.ne	1b
++	dsb		sy
++	mov		x12, #0x10000000
++2:	subs	x12, x12, #1
++	b.ne	2b
++	dsb		sy
++	9:
+ 	ret
+ 
+ Ltrampoline:
+ 	// Load VA of the trampoline
