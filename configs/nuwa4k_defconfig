@@ -1,0 +1,51 @@
+# Kernel configuration for the nuwa 4 KiB bring-up chain.
+#
+# Template: unixnu-fuxi configs/fuxi_defconfig (same SoC, SM8550, verified to
+# launchd). Differences from that file:
+#   - VERIFIED_ROOT_PROBE / TRUST_CACHE_RUNTIME are off, because both need a
+#     signing policy bundle built from a real OS/SystemOS DMG that we do not
+#     have yet. Without them the kernel still reaches arm_init, machine_startup
+#     and the panic path, which is what the first bring-up round needs.
+#   - EXTRA_LD_ARCHIVES points at the legacy stub for the same reason fuxi's
+#     diagnostic defconfig does: bsd_init references the legacy display hooks
+#     unconditionally and the real archive needs a prelink candidate that
+#     cannot exist before the kernel links.
+#
+# Page size: 4 KiB. This is the upstream UniXNU chain and the one both sm8550
+# ports (fuxi, m2381) run. Do not define __ARM_16K_PG__ here.
+
+CONFIG_XNU_BUILD_ARCHIVES=y
+CONFIG_XNU_SOURCE_CORECRYPTO14=y
+CONFIG_XNU_SOURCE_PTHREAD=y
+CONFIG_XNU_ARM_DT_PLATFORM=y
+CONFIG_XNU_ARMCPU=y
+CONFIG_XNU_NATIVE_UFS=y
+CONFIG_XNU_NATIVE_AES=y
+CONFIG_XNU_DT_PANIC_REGION=y
+CONFIG_XNU_NATIVE_ARCH_TIMER=y
+CONFIG_XNU_NATIVE_PAN=y
+CONFIG_XNU_SHENG_PMGR=y
+
+# Hardware verification gates, all off for the first round.
+#   TRUST_CACHE_RUNTIME / VERIFIED_ROOT_PROBE   need a policy bundle from a real DMG
+#   NATIVE_CS_HASH_CACHE / SOURCE_MOCKFS         belong to the root-mount stage
+#   OWNER_*                                      belong to the owner-root stage
+#   BOOT_PROGRESS / NATIVE_ADRENO                need audited storage and GPU firmware
+CONFIG_XNU_TRUST_CACHE_RUNTIME=n
+CONFIG_XNU_VERIFIED_ROOT_PROBE=n
+CONFIG_XNU_NATIVE_CS_HASH_CACHE=n
+CONFIG_XNU_SOURCE_MOCKFS=n
+CONFIG_XNU_OWNER_ROOT_AUDIT=n
+CONFIG_XNU_OWNER_ROOT_TRUST=n
+CONFIG_XNU_OWNER_CACHE_MOUNT=n
+CONFIG_XNU_OWNER_CACHE_STARTUP=n
+CONFIG_XNU_OWNER_BOOT_MANIFEST=n
+CONFIG_XNU_OWNER_DATA_MOUNT=n
+CONFIG_XNU_OWNER_UNION_SYSTEMOS=n
+CONFIG_XNU_BOOT_PROGRESS=n
+CONFIG_XNU_NATIVE_ADRENO=n
+
+CONFIG_XNU_CRYPTO_BOOTSTRAP="prelinked"
+CONFIG_XNU_EXTRA_LD_ARCHIVES="{tree}/build/legacy-stub/libLegacyStub.a"
+CONFIG_XNU_NATIVE_MOBILE_DISPLAY=n
+CONFIG_XNU_ARMVIRT_PLATFORM=n

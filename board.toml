@@ -47,7 +47,7 @@ windows = [
 ]
 
 [kernel]
-defconfig = "nuwa_defconfig"
+defconfig = "nuwa4k_defconfig"
 # Archive builders of the kernel step, in order. Same list as sheng: these are SoC-level components plus the
 # sheng package's own kits. The first bring-up boots the sheng kit on nuwa hardware, so keep this identical;
 # device-specific pieces (touch!) are replaced later, not now.
@@ -57,18 +57,18 @@ archives = [
   "build-arm-driver.py ArmDTPlatform",
   "build-arm-driver.py ArmCpu",
   "build-arm-driver.py NativeAES",
-  "build-native-aes-bindings.py",
   "prepare-storage-headers.py",
   "build-arm-driver.py NativeUfs --unverified",
   "build-ufs-original-bindings.py",
-  "build-mockfs-fixture.py",
   "build-sheng-platform-power.py",
   "build-libpthread-kernel.py",
-  "build-native-legacy-display.py",
+  # 4K chain: the stub supplies the legacy display hooks so the kernel links
+  # before the prelink candidate exists (same role as fuxi_defconfig).
+  "build-legacy-stub.py",
 ]
 
 [kernel.prelink]
-tool = "kits/NativePrelink/emit_prelink.py"
+tool = "kits/XnuPrelink/emit_prelink.py"
 kernel = "build/xnu/ios-obj/DEVELOPMENT_ARM64_BCM2837/mach.development.bcm2837.unstripped.noctf"
 kernelcache_sha256 = "f18b4df865405f2a287b84977d7aca745e056d656d9fc9df1662970ce2969de7"
 slide = "-0x1000000"
