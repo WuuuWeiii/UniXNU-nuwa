@@ -231,7 +231,7 @@ diff --git a/osfmk/arm64/start.s b/osfmk/arm64/start.s
 +	ic		iallu
 +	dsb		ish
 +	isb
-+	MOV64	x9, 0xfffffe0007ad5a94
++	MOV64	x9, 0xfffffe0007ad5aa8
 +	blr	x9
 +#endif
 +
