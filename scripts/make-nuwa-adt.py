@@ -218,7 +218,11 @@ def main():
                             ('reg', struct.pack('<4Q',
                                                 GIC_DIST - ARMIO_BASE, GIC_DIST_SIZE,
                                                 GIC_REDIST - ARMIO_BASE, GIC_REDIST_SIZE)),
-                            ('redistributor-stride', struct.pack('<Q', 0x40000))]),
+                            ('redistributor-stride', struct.pack('<Q', 0x40000)),
+                            # 0017 reads this on the GIC node; without it the kernel
+                            # falls back to SWEET_VTIMER_INTID, which was sweet's 19.
+                            # SM8550 (m2381 measurement + QEMU virt convention): 27 (PPI11).
+                            ('virtual-timer-intid', struct.pack('<I', 27))]),
               # UFS (0x1d84000) lies below the arm-io window, so a child reg offset would be
               # negative. The node exists only for class matching; NativeUfs takes its
               # physical windows from the board DT constants in GccUfs.h.
