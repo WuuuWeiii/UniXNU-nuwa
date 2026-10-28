@@ -33,57 +33,18 @@ fi
 # Remove them first so earlier independent patches retain their idempotent checks.
 # The same holds for the boot-time GPU addon mount (zzy), which edits the owner Data mount function inside the systemos patch.
 # Reverse newest first; the loop below re-applies them in name order.
-#
-# The CI object-tree cache keeps the patched work tree from the previous run, so a patch set that
-# changed since then fails to apply ("patch does not apply"). Reset the tracked sources to the
-# pristine checkout first; compiler output lives under untracked paths and survives.
-git -C .cache/xnu-work checkout -- . 2>/dev/null || true
-# Patches that create files from /dev/null leave them behind as untracked paths, and re-applying
-# then fails with "already exists in working directory". These are the only two such files.
-rm -f .cache/xnu-work/osfmk/kern/boot_progress.h
-rm -f .cache/xnu-work/bsd/kern/source_pthread_bootstrap.c
-rm -f .cache/xnu-work/bsd/kern/native_console_log.c
 for LATE_PATCH in "$ROOT/patches/xnu/zzz-boot-progress.patch" "$ROOT/patches/xnu/zzy-native-gpu-addon-mount.patch"; do
   if git -C .cache/xnu-work apply --reverse --check "$LATE_PATCH" >/dev/null 2>&1; then
     git -C .cache/xnu-work apply --reverse "$LATE_PATCH"
   fi
 done
-for PATCH in "$ROOT"/patches/xnu/*.patch "$ROOT"/kits/XnuPrelink/patches/*.patch "$ROOT"/kits/NativePrelink/patches/*.patch; do
-  [ -f "$PATCH" ] || continue
+for PATCH in "$ROOT"/patches/xnu/*.patch "$ROOT"/kits/NativePrelink/patches/*.patch; do
   if ! git -C .cache/xnu-work apply --reverse --check "$PATCH" >/dev/null 2>&1; then
     git -C .cache/xnu-work apply --check "$PATCH"
     git -C .cache/xnu-work apply "$PATCH"
   fi
 done
-# nuwa: the base patches reference native_legacy_display_probe() from
-# bsd_init.c even when NATIVE_LEGACY_DISPLAY is off. The other probe symbols
-# are defined by patches/xnu/offline-component-load-probes.patch; this one is
-# supplied here because the legacy display provider is not built during the
-# bootstrap pass. Remove once the sheng display archive is built in CI
-# (nuwa_defconfig enables it).
-NUWA_BSD_INIT=$ROOT/.cache/xnu-work/bsd/kern/bsd_init.c
-if [ "${XNU_NATIVE_LEGACY_DISPLAY:-0}" != 1 ] && ! grep -q 'nuwa_display_probe_stub' "$NUWA_BSD_INIT"; then
-  cat >> "$NUWA_BSD_INIT" <<'NUWA_DISPLAY_STUB'
-
-/* nuwa_display_probe_stub: see scripts/build-xnu-4k-baseline.sh. */
-__attribute__((weak)) void native_legacy_display_probe(void)
-{
-	kprintf("nuwa: native_legacy_display_probe: no display provider on this board yet\n");
-}
-NUWA_DISPLAY_STUB
-fi
-
 export XNU_AVAILABILITY_PL=$ROOT/.cache/fakeroot/usr/local/libexec/availability.pl
-# The XNU rules resolve availability.pl through the SDK root, not through an
-# environment variable: <SDK>/usr/local/libexec/availability.pl. Stage it there
-# (the directory does not exist in a stock Xcode SDK) so _symbol_aliasing.h and
-# _posix_availability.h can be generated.
-_SDK=$(xcrun --sdk macosx --show-sdk-path 2>/dev/null || true)
-if [ -n "$_SDK" ] && [ -f "$XNU_AVAILABILITY_PL" ]; then
-  sudo mkdir -p "$_SDK/usr/local/libexec"
-  sudo cp "$XNU_AVAILABILITY_PL" "$_SDK/usr/local/libexec/availability.pl" || echo "warning: staged availability.pl copy failed" >&2
-  sudo chmod 755 "$_SDK/usr/local/libexec/availability.pl" || true
-fi
 python3 scripts/prepare-xnu-source.py
 BOOT_PROGRESS=${XNU_BOOT_PROGRESS:-0}
 if [ "$BOOT_PROGRESS" != 0 ] && [ "$BOOT_PROGRESS" != 1 ]; then
